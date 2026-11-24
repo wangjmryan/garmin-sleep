@@ -1,0 +1,17 @@
+# Python
+.venv/
+__pycache__/
+
+# Personal health data: stays on this computer
+sleep.db
+*.db
+my_sleep.csv
+charts/
+.impeccable/review/
+
+# Local secrets, if ever added
+.env
+.streamlit/secrets.toml
+
+# Notes kept local
+UI_DECLUTTER_PROMPT.md
