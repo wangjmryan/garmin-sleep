@@ -5,6 +5,10 @@ backgroundColor = "#0d1015"
 secondaryBackgroundColor = "#1b2028"
 textColor = "#f2f3f5"
 
+[server]
+# Only this laptop can connect; the phone gets in through Tailscale (`tailscale serve --bg 8501`)
+address = "127.0.0.1"
+
 [client]
 toolbarMode = "minimal"
 

@@ -90,21 +90,38 @@ def home_network_address():
     return None if ip.startswith("127.") else ip
 
 
+@st.cache_data(ttl=600)
+def tailscale_url():
+    """This laptop's private https address on Tailscale, or None if Tailscale isn't on.
+    The address only answers because `tailscale serve --bg 8501` was run once (it lasts across restarts)."""
+    import json, shutil, subprocess
+    exe = shutil.which("tailscale") or r"C:\Program Files\Tailscale\tailscale.exe"
+    try:
+        me = json.loads(subprocess.run([exe, "status", "--json"], capture_output=True, timeout=5).stdout)
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return None
+    name = me.get("Self", {}).get("DNSName", "").rstrip(".")
+    return f"https://{name}" if me.get("BackendState") == "Running" and name else None
+
+
 def phone_panel():
-    ip = home_network_address()
-    if not ip:
+    url = tailscale_url()
+    ip = None if url else home_network_address()
+    if not url and not ip:
         html('<div class="r-sub">This computer isn\'t on a Wi-Fi or wired network right now.</div>')
         return
     import segno
-    url = f"http://{ip}:{st.get_option('server.port')}"
+    url = url or f"http://{ip}:{st.get_option('server.port')}"
     qr = segno.make(url, error="m").svg_inline(border=0, omitsize=True,dark="#0d1015", light="#ffffff")
     html(f'<div class="phone-qr">{qr}</div>'
          f'<div class="phone-url">{url}</div>'
          '<ol class="phone-steps"><li>Point your phone\'s camera at the code and tap the link.</li>'
          '<li>Then use the browser\'s Share or ⋮ menu and choose <b>Add to Home Screen</b>, '
          'so it opens like an app next time.</li></ol>'
-         '<div class="r-sub">Your phone needs to be on the same Wi-Fi, and this computer needs to be on '
-         'with the dashboard open. Campus Wi-Fi often blocks this.</div>')
+         + ('<div class="r-sub">Works on any Wi-Fi or mobile data while Tailscale is on in your phone, '
+            'and this laptop is awake with the dashboard open.</div>' if not ip else
+            '<div class="r-sub">Your phone needs to be on the same Wi-Fi, and this computer needs to be on '
+            'with the dashboard open. Campus Wi-Fi often blocks this.</div>'))
 
 
 def request_sync():
