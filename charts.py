@@ -261,6 +261,24 @@ def daily_steps(d, goal, start, end, weekly=False):
     return style(alt.layer(*layers).properties(height=160))
 
 
+def food_history(d, key, unit, start, end):
+    """What you ate on each logged day (bars) and that day's target (white tick)."""
+    fmt = lambda v: "" if pd.isna(v) else f"{v:,.0f} {unit}"
+    d = d.assign(eaten_t=d[key].map(fmt), target_t=d[f"t_{key}"].map(fmt))
+    top = float(pd.concat([d[key], d[f"t_{key}"]]).max()) * 1.1
+    ys = alt.Scale(domain=[0, top], nice=False)
+    y_axis = alt.Axis(tickCount=3, minExtent=Y_AXIS_WIDTH, maxExtent=Y_AXIS_WIDTH)
+    x = alt.X("date:T", title=None, scale=alt.Scale(domain=padded_domain(start, end)),
+              axis=alt.Axis(format="%b %d", tickCount=3, labelAngle=0))
+    tip = [HOVER_DATE, alt.Tooltip("eaten_t:N", title="Eaten"), alt.Tooltip("target_t:N", title="Target")]
+    size = bar_size(30)
+    bars = alt.Chart(d).mark_bar(cornerRadiusEnd=3, size=size, color=ACCENT).encode(
+        x=x, y=alt.Y(f"{key}:Q", title=None, scale=ys, axis=y_axis), tooltip=tip)
+    ticks = alt.Chart(d).mark_tick(color=TEXT, thickness=2, size=size + 6).encode(
+        x=x, y=alt.Y(f"t_{key}:Q", title=None, scale=ys, axis=y_axis), tooltip=tip)
+    return style(alt.layer(bars, ticks).properties(height=160))
+
+
 def vo2_trend(v):
     """VO2 max readings: Garmin updates them every week or two, so show every point."""
     d = v.sort_values("date").copy()

@@ -269,6 +269,8 @@ button[data-variant="segmented_control"] { flex: 1 1 0; min-width: 0; max-width:
 button[data-variant="segmented_control"] p { font-weight: 650; letter-spacing: .06em; font-size: 13px; white-space: nowrap; }
 button[data-variant="segmented_control"][aria-checked="true"] { background: #4a525e !important; color: var(--text) !important; }
 button[data-variant="segmented_control"]:hover { color: var(--text) !important; }
+/* Clicking the tab that's already open does nothing (Streamlit would unselect it) */
+.st-key-tab button[aria-checked="true"] { pointer-events: none; }
 /* While the app redraws, Streamlit fades everything to a third of its opacity; on a dashboard that
    redraws often (tab switches, auto-sync) that reads as flicker, so keep cards fully visible */
 .stApp [data-stale="true"] { opacity: 1 !important; transition: none !important; }
@@ -301,6 +303,7 @@ button[data-variant="segmented_control"]:hover { color: var(--text) !important; 
 .st-key-chart_bylength { min-height: 170px; }
 .st-key-chart_weekly { min-height: 170px; }
 .st-key-chart_burn { min-height: 170px; }
+.st-key-chart_foodhist { min-height: 160px; }
 .st-key-chart_weight { min-height: 180px; }
 
 /* Rows of buttons or inputs inside a card stay side by side on phones too. Streamlit otherwise
@@ -423,6 +426,13 @@ button[data-variant="segmented_control"]:hover { color: var(--text) !important; 
 .st-key-logform, .st-key-mealform, .st-key-reviewform { padding: 0 6px; }
 [class*="st-key-card"] [data-testid="stFileUploaderDropzone"] { background: var(--card-2); border-radius: 14px; }
 [data-testid="stFileUploaderDropzoneInstructions"] { display: none; }  /* "200MB per file • JPG…" */
+/* Meal photos: the whole box is one big Upload button, easy to hit with a thumb */
+.st-key-mealform [data-testid="stFileUploaderDropzone"] { padding: 0; border: none; background: none; }
+.st-key-mealform [data-testid="stFileUploaderDropzone"] button:not([data-testid="stFileChip"] button) { width: 100%; min-height: 64px;
+  justify-content: center; border-radius: 14px; border: 1.5px dashed var(--line-2, rgba(255,255,255,.18));
+  background: var(--card-2); font-size: 15px; font-weight: 600; }
+.st-key-mealform [data-testid="stFileUploaderDropzone"] button:not([data-testid="stFileChip"] button):hover,
+.st-key-mealform [data-testid="stFileUploaderDropzone"] button:not([data-testid="stFileChip"] button):focus-visible { border-color: var(--accent); color: var(--text); }
 .stMarkdown code { background: var(--card-2); color: var(--text); padding: 1px 6px; border-radius: 6px; font-size: 13px; }
 .st-key-mealrows [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; border-top: 1px solid var(--line);
   margin: 0 6px; align-items: center; }

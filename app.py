@@ -176,10 +176,20 @@ if sleep.empty:
     st.stop()
 
 TABS = ["TODAY", "SLEEP", "TRAINING", "FOOD", "WEIGHT"]
-start_tab = st.query_params.get("tab", "today").upper()  # e.g. ?tab=sleep opens the Sleep tab
+on_phone = "Mobile" in st.context.headers.get("User-Agent", "")  # iPhone and Android browsers say "Mobile"
+# Phones open on Food, ready to photograph a meal; ?tab=sleep (etc.) still opens a chosen tab
+start_tab = st.query_params.get("tab", "food" if on_phone else "today").upper()
+def keep_tab():
+    # Clicking the open tab again would unselect it (and fall back to Today); stay on it instead
+    if st.session_state.tab is None:
+        st.session_state.tab = st.session_state.get("tab_keep", "TODAY")
+
+
 with st.container(key="nav"):
     tab = st.segmented_control("Section", TABS, default=start_tab if start_tab in TABS else "TODAY",
-                               label_visibility="collapsed", key="tab") or "TODAY"
+                               label_visibility="collapsed", key="tab", on_change=keep_tab) or "TODAY"
+st.session_state["tab_keep"] = tab
+st.query_params["tab"] = tab.lower()  # keep the open tab in the address, so a reload stays on it
 
 flash = st.session_state.pop("flash", None)  # "Saved..." message from the last action
 if flash:
@@ -970,11 +980,37 @@ def food_tab():
     targets = I.food_targets(daily, acts, today, rate, kg)
     eaten = I.food_day(meals, today)
     left, right = st.columns(2)  # fixed columns: cards never jump between them while loading
-    with left:  # on a phone this column comes first: totals, then adding a meal
-        food_today_card(targets, eaten, goal)
+    with left:  # on a phone this column comes first: adding a meal, then totals
         add_meal_card()
+        food_today_card(targets, eaten, goal)
     with right:
         meals_card(eaten)
+        food_history_card(rate, kg)
+
+
+FOOD_METRICS = {"Calories": ("calories", "cal"), "Protein": ("protein", "g"), "Carbs": ("carbs", "g"), "Fat": ("fat", "g")}
+
+
+def food_history_card(rate, kg):
+    """Each logged day of the last 30: what you ate (bars) against that day's target (white tick)."""
+    start = today - timedelta(days=29)
+    logged = sorted({d.date() for d in meals["date"]} if not meals.empty else set())
+    rows = []
+    for day in (d for d in logged if d >= start):
+        e, t = I.food_day(meals, day), I.food_targets(daily, acts, day, rate, kg) or {}
+        rows.append({"date": pd.Timestamp(day), **{k: e[k] for k, _ in FOOD_METRICS.values()},
+                     **{f"t_{k}": t.get(k) for k, _ in FOOD_METRICS.values()}})
+    with st.container(key="card_foodhist"):
+        html('<div class="inset">' + card_head("History", "30 days") + '</div>')
+        if len(rows) < 2:
+            html('<div class="inset"><div class="empty">Log meals on 2 days to see your history</div></div>')
+            return
+        pick = st.segmented_control("Show", list(FOOD_METRICS), default="Calories", label_visibility="collapsed",
+                                    key="food_metric") or "Calories"
+        key, unit = FOOD_METRICS[pick]
+        chart("foodhist", charts.food_history(pd.DataFrame(rows), key, unit, start, today))
+        html(f'<div class="inset legend"><span><i class="key" style="background:{ui.ACCENT}"></i>Eaten</span>'
+             '<span><i class="key mark"></i>Target</span></div>')
 
 
 def food_today_card(targets, eaten, goal):
@@ -982,7 +1018,10 @@ def food_today_card(targets, eaten, goal):
         html(card(card_head("Today") + '<div class="empty">Targets need a week of watch data</div>'))
         return
     left_cal = targets["calories"] - eaten["calories"]
-    big = (f'{num(left_cal)}<small>cal left</small>' if left_cal >= 0 else f'{num(-left_cal)}<small>cal over</small>')
+    # Over target: the big number becomes the day's total, and a chip says how far over
+    big = (f'{num(left_cal)}<small>cal left</small>' if left_cal >= 0
+           else f'{num(eaten["calories"])}<small>cal eaten</small>')
+    over = ui.pill("trending_up", f"{num(-left_cal)} over", "low") if left_cal < 0 else ""
     kind = "Workout day" if targets["trained"] else "Rest day"
     rows = meter_row("Eaten", num(eaten["calories"]), f"/ {num(targets['calories'])} cal",
                      eaten["calories"] / targets["calories"], status="good" if 0 <= left_cal <= 150 else "")
@@ -994,7 +1033,7 @@ def food_today_card(targets, eaten, goal):
     html(card(f'<div class="hero"><h2 class="h3">Today</h2><div class="figure">{big}</div><div class="chips">'
               + ui.pill("fitness_center" if targets["trained"] else "self_improvement", kind,
                         tip=f"{kind} target for your goal ({goal.lower()})")
-              + f'</div></div><div class="rows" style="margin-top:14px">{rows}</div>'
+              + over + f'</div></div><div class="rows" style="margin-top:14px">{rows}</div>'
               + (f'<div class="r-sub" style="margin-top:2px">{extra}</div>' if extra else "")
               + ui.more(f"<p>Your {kind.lower()} target is {num(targets['calories'])} cal for your goal "
                         f"({goal.lower()}). Targets come from what your watch says you burn (change the goal on the "
@@ -1028,7 +1067,9 @@ def delete_meal_entry(meal_id, name):
 
 
 def save_meal_entry():
-    p = st.session_state.pop("pending")
+    p = st.session_state.pop("pending", None)
+    if p is None:  # already saved (e.g. a double tap) or discarded -- nothing to do
+        return
     n = p["n"]
     meal = {"date": today.isoformat(), "time": now.strftime("%H:%M"), "meal": st.session_state.get(f"f_slot_{n}") or
             I.meal_slot(now.hour), "name": st.session_state.get(f"f_name_{n}") or "Meal"}
