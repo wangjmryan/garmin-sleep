@@ -175,10 +175,11 @@ if sleep.empty:
     auto_sync()
     st.stop()
 
-TABS = ["TODAY", "SLEEP", "TRAINING", "FOOD", "WEIGHT"]
+TABS = ["TODAY", "SLEEP", "TRAINING", "FOOD"]  # Food includes weight
 on_phone = "Mobile" in st.context.headers.get("User-Agent", "")  # iPhone and Android browsers say "Mobile"
 # Phones open on Food, ready to photograph a meal; ?tab=sleep (etc.) still opens a chosen tab
 start_tab = st.query_params.get("tab", "food" if on_phone else "today").upper()
+start_tab = "FOOD" if start_tab == "WEIGHT" else start_tab  # old links to the Weight tab
 def keep_tab():
     # Clicking the open tab again would unselect it (and fall back to Today); stay on it instead
     if st.session_state.tab is None:
@@ -189,6 +190,10 @@ with st.container(key="nav"):
     tab = st.segmented_control("Section", TABS, default=start_tab if start_tab in TABS else "TODAY",
                                label_visibility="collapsed", key="tab", on_change=keep_tab) or "TODAY"
 st.session_state["tab_keep"] = tab
+# The browser loads its chart code at the first chart, and holds back every card below it until that's
+# done. A hidden chart here starts that load first, so the cards then arrive together, not in two jumps.
+with st.container(key="chartwarm"):
+    st.altair_chart(charts.alt.Chart(pd.DataFrame({"x": [0]})).mark_point().encode(x="x:Q"), width=10)
 st.query_params["tab"] = tab.lower()  # keep the open tab in the address, so a reload stays on it
 
 flash = st.session_state.pop("flash", None)  # "Saved..." message from the last action
@@ -327,8 +332,10 @@ def workout_card(rec, t):
     rows, chips, why = "", "", p.get("why", [])
     if p["kind"] == "done":
         ic, plan = "task_alt", "Done for today"
-        chips = "".join(ui.pill(ui.SPORT_ICON[a["sport"]], f"{ui.SPORT_NAME[a['sport']]} {dur_min(a['duration_min'])}")
-                        for _, a in p["done"].iterrows())
+        # Each workout as a row (distance, time, calories, training effect), opening it in Garmin Connect
+        rows = "".join(ui.activity_link(a, a["sport"]) for _, a in p["done"].iterrows())
+        chips = "".join(ui.pill("favorite", f"{num(a['avg_hr'])} bpm avg", tip="Average heart rate")
+                        for _, a in p["done"].iterrows() if pd.notna(a.get("avg_hr")))
         how = "Eat well and get to bed on time."
     elif p["kind"] == "rest":
         ic, plan = "self_improvement", "Rest day"
@@ -361,8 +368,9 @@ def workout_card(rec, t):
     html(card(card_head("Workout", when)
               + f'<div class="plan-row"><div class="tile">{icon(ic)}</div><div class="plan">{plan}</div></div>'
               + f'<div class="chips">{chips}</div>' + (f'<div class="rows">{rows}</div>' if rows else "")
-              + ui.more(f"<p>{how}</p>" + (f'<ul class="why">{reasons}</ul>' if reasons else "") + f"<p>{foot}</p>",
-                        "Why?")))
+              + ("" if p["kind"] == "done" else  # nothing to explain once you've trained
+                 ui.more(f"<p>{how}</p>" + (f'<ul class="why">{reasons}</ul>' if reasons else "") + f"<p>{foot}</p>",
+                         "Why?"))))
 
 
 SIGNAL_LABEL = {"hrv": "HRV", "rhr": "Resting HR", "load": "7-day load"}  # short names for the bars
@@ -805,20 +813,6 @@ def weight_unit():
     return unit if unit in UNITS else "lb"
 
 
-def weight_tab():
-    w = I.weight_series(weights) if not weights.empty else weights
-    unit = weight_unit()
-    c = I.calorie_needs(daily, acts, today)
-    left, right = st.columns(2)  # fixed columns: cards never jump between them while loading
-    with left:
-        weight_card(w, unit)
-        weight_trend_card(w, unit)
-    with right:
-        burn_card(c)
-        if c:
-            eat_card(c, unit)
-
-
 def save_weight_entry():
     unit = weight_unit()
     value, when = st.session_state[f"w_val_{unit}"], st.session_state["w_date"]
@@ -979,13 +973,21 @@ def food_tab():
     kg = float(weights.iloc[-1]["kg"]) if not weights.empty else None
     targets = I.food_targets(daily, acts, today, rate, kg)
     eaten = I.food_day(meals, today)
+    w = I.weight_series(weights) if not weights.empty else weights
+    unit = weight_unit()
+    c = I.calorie_needs(daily, acts, today)
     left, right = st.columns(2)  # fixed columns: cards never jump between them while loading
-    with left:  # on a phone this column comes first: adding a meal, then totals
+    with left:  # on a phone this column comes first: adding a meal, totals, then weight
         add_meal_card()
         food_today_card(targets, eaten, goal)
+        weight_card(w, unit)
+        weight_trend_card(w, unit)
     with right:
         meals_card(eaten)
         food_history_card(rate, kg)
+        burn_card(c)
+        if c:
+            eat_card(c, unit)  # its goal sets the calorie targets above
 
 
 FOOD_METRICS = {"Calories": ("calories", "cal"), "Protein": ("protein", "g"), "Carbs": ("carbs", "g"), "Fat": ("fat", "g")}
@@ -1036,8 +1038,8 @@ def food_today_card(targets, eaten, goal):
               + over + f'</div></div><div class="rows" style="margin-top:14px">{rows}</div>'
               + (f'<div class="r-sub" style="margin-top:2px">{extra}</div>' if extra else "")
               + ui.more(f"<p>Your {kind.lower()} target is {num(targets['calories'])} cal for your goal "
-                        f"({goal.lower()}). Targets come from what your watch says you burn (change the goal on the "
-                        "Weight tab). Workout days switch on once your workout syncs. Protein 1.6 g and carbs 5–6 g "
+                        f"({goal.lower()}). Targets come from what your watch says you burn (change the goal under "
+                        "How much to eat, below). Workout days switch on once your workout syncs. Protein 1.6 g and carbs 5–6 g "
                         "per kg of body weight suit endurance training.</p>", "How targets work")))
 
 
@@ -1211,9 +1213,7 @@ with st.container(key=f"page_{tab.lower()}"):
         sleep_tab()
     elif tab == "TRAINING":
         training_tab()
-    elif tab == "FOOD":
+    else:  # Food, which includes weight
         food_tab()
-    else:
-        weight_tab()
 
 auto_sync()

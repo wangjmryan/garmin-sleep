@@ -287,6 +287,12 @@ button[data-variant="segmented_control"]:hover { color: var(--text) !important; 
 }
 [class*="st-key-card"] .stElementContainer:has(.card) { animation: none; }
 [class*="st-key-chart_"] .vega-embed { animation: fade-in .4s ease-out both; }
+/* Opening the app or a tab: Streamlit sends the page in bursts, so it used to grow in jumps. Keep it
+   hidden until it has all arrived, then fade it in once. A click's redraw ends within the 1.5s delay, so it
+   never flickers; a sync (.sync-pill) or meal estimate (.task) keeps the page visible while it works. */
+[class*="st-key-page_"] { transition: opacity .3s ease-out; }
+.stApp:is([data-test-script-state="initial"], [data-test-script-state="running"]):not(:has(.sync-pill, .task))
+  [class*="st-key-page_"] { opacity: 0; transition: opacity .15s ease-in 1.5s; }
 /* Streamlit's fullscreen button stretches these small charts into tall spikes; they're sized to be
    read in their card, so hide it (and the chart's own ⋯ menu) */
 [class*="st-key-chart_"] [data-testid="stElementToolbar"],
@@ -304,6 +310,7 @@ button[data-variant="segmented_control"]:hover { color: var(--text) !important; 
 .st-key-chart_weekly { min-height: 170px; }
 .st-key-chart_burn { min-height: 170px; }
 .st-key-chart_foodhist { min-height: 160px; }
+.st-key-chartwarm { display: none; }  /* hidden chart that loads the chart code early (app.py) */
 .st-key-chart_weight { min-height: 180px; }
 
 /* Rows of buttons or inputs inside a card stay side by side on phones too. Streamlit otherwise
