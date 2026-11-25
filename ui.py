@@ -78,9 +78,6 @@ html { scrollbar-color: #3a424d transparent; }
 .sub { color: var(--muted); font-size: 14px; margin-top: 6px; }
 .muted { color: var(--muted); } .t2 { color: var(--text-2); }
 .good { color: var(--good); } .ok { color: var(--warn); } .low { color: var(--bad); } .neutral { color: var(--muted); }
-.small { font-size: 13px; line-height: 1.45; }
-.body { color: var(--text-2); font-size: 15px; line-height: 1.5; }
-.body b { color: var(--text); font-weight: 600; }
 .accent { color: var(--accent); }
 
 /* Cards */
@@ -100,7 +97,8 @@ html { scrollbar-color: #3a424d transparent; }
 .figure { font: 600 60px/1 var(--display); letter-spacing: -0.035em; color: var(--text); margin-top: 12px; }
 .figure small { font: 500 17px var(--sans); color: var(--muted); letter-spacing: 0; margin-left: 8px; }
 .hero-meta { color: var(--text-2); font-size: 15px; margin-top: 12px; }
-.hero-note { color: var(--muted); font-size: 13px; margin-top: 4px; }
+.hero-note { color: var(--muted); font-size: 13px; margin-top: 10px; }
+.hero-note.ok { color: var(--warn); }  /* e.g. the last weigh-in is over a week old */
 [class*="st-key-card"] .hero { padding: 2px 6px 0; }
 [class*="st-key-card"] .corner { top: 0; right: 6px; }
 
@@ -109,13 +107,39 @@ html { scrollbar-color: #3a424d transparent; }
   font-size: 13px; font-weight: 600; margin-top: 12px; }
 .chip .ms { font-size: 17px; vertical-align: 0; }
 .chip.good { background: rgba(62,207,142,.12); } .chip.ok { background: rgba(242,201,76,.12); }
-.chip.low { background: rgba(255,107,107,.12); } .chip.neutral { background: var(--card-2); }
+.chip.low { background: rgba(255,107,107,.12); } .chip.neutral { background: var(--card-2); color: var(--text-2); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.chips .chip { margin-top: 0; }
+.hero .chips { justify-content: center; }
+
+/* Change marker: arrow + amount, coloured by whether the change is good */
+.delta { display: inline-flex; align-items: center; gap: 1px; font-size: 13px; font-weight: 650;
+  font-variant-numeric: tabular-nums; white-space: nowrap; letter-spacing: 0; }
+.delta .ms { font-size: 15px; vertical-align: 0; }
+.corner .delta { font-size: 16px; } .corner .delta .ms { font-size: 17px; }
+.plan .delta { font: 650 15px var(--sans); margin-left: 10px; vertical-align: 6px; }
+.chips .delta { padding: 4px 11px 4px 8px; border-radius: 99px; background: var(--card-2); }
+
+/* "How it works": closed by default, opens on click */
+.more { margin-top: 14px; }
+.more summary { display: inline-flex; align-items: center; gap: 4px; min-height: 40px; margin: -8px 0 -8px -4px;
+  padding: 0 8px 0 4px; border-radius: 10px; list-style: none; cursor: pointer; color: var(--muted);
+  font-size: 13px; font-weight: 600; transition: color .16s ease-out, background-color .16s ease-out; }
+.more summary::-webkit-details-marker { display: none; }
+.more summary:hover { color: var(--text); background: rgba(255,255,255,.035); }
+.more summary .ms { font-size: 18px; vertical-align: 0; transition: transform .2s cubic-bezier(.2, .7, .2, 1); }
+.more[open] summary .ms { transform: rotate(180deg); }
+.more-body { margin-top: 10px; color: var(--text-2); font-size: 13px; line-height: 1.5; max-width: 62ch; }
+.more-body p { margin: 0 0 8px; }
+.more-body b { color: var(--text); font-weight: 600; }
+.more-body ul { margin: 0 0 8px; padding-left: 18px; }
+.more-body .why { margin: 0 0 8px; padding: 0; }
+.more-body .why li { font-size: 13px; padding: 2px 0; }
 
 /* Rows inside a card */
 .rows { margin-top: 6px; }
 .r { display: flex; align-items: center; gap: 12px; padding: 13px 0; }
 .r + .r { border-top: 1px solid var(--line); }
-.r-ic { flex: none; font-size: 22px; }
 .r-main { flex: 1; min-width: 0; }
 .r-label { color: var(--text); font-size: 15px; font-weight: 500; line-height: 1.3; }
 .r-sub { color: var(--muted); font-size: 13px; line-height: 1.4; margin-top: 2px; }
@@ -123,6 +147,10 @@ html { scrollbar-color: #3a424d transparent; }
   font-variant-numeric: tabular-nums; }
 .r-value small { color: var(--muted); font-size: 13px; font-weight: 500; margin-left: 3px; }
 .r-value.accent { color: var(--accent); }
+.r-value .ms { font-size: 18px; margin-right: 4px; vertical-align: -3px; }
+.r-label small { color: var(--muted); font-size: 13px; font-weight: 500; margin-left: 6px; }
+.r-label .ms { font-size: 16px; color: var(--muted); margin-left: 6px; vertical-align: -2px; }
+.rows.tight .r { padding: 9px 0; }
 [data-testid="stHeaderActionElements"] { display: none; }  /* Streamlit's link icon next to headings */
 .empty { margin: 10px 0 4px; padding: 18px 16px; border-radius: 14px; background: var(--card-2); color: var(--text-2); font-size: 15px; line-height: 1.45; text-align: center; }
 .r-value.quiet { color: var(--text-2); font-size: 15px; font-weight: 500; }
@@ -134,10 +162,8 @@ html { scrollbar-color: #3a424d transparent; }
 .meter > i { display: block; height: 100%; border-radius: 99px; background: var(--accent); }
 .meter > i.good { background: var(--good); }
 
-/* Recovery: the answer, a Rest-Easy-Normal-Hard scale, and one bar per signal */
-.statement { margin-top: 12px; color: var(--text); font: 650 22px/1.25 var(--sans); letter-spacing: -0.01em; }
-.statement-text { margin-top: 12px; color: var(--text-2); font-size: 15px; line-height: 1.45; }
-.levels { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3px; margin-top: 14px; }
+/* Recovery: a Rest-Easy-Normal-Hard scale, and one bar per signal */
+.levels { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3px; margin: 16px 0 6px; }
 .lv i { display: block; height: 8px; border-radius: 2px; opacity: .2; }
 .lv:first-child i { border-radius: 99px 2px 2px 99px; }
 .lv:last-child i { border-radius: 2px 99px 99px 2px; }
@@ -152,20 +178,17 @@ html { scrollbar-color: #3a424d transparent; }
   background: var(--good); box-shadow: 0 0 0 3px var(--card); }
 .bullet .dot.ok { background: var(--warn); } .bullet .dot.low { background: var(--bad); }
 .bullet .dot.neutral { background: var(--text-2); }
-.r.stack .bullet + .r-sub { margin-top: 8px; }
 /* Small score bar inside a row */
 .sbar { display: inline-block; width: 84px; height: 6px; margin-right: 12px; border-radius: 99px; overflow: hidden;
   background: var(--card-2); vertical-align: middle; }
 .sbar i { display: block; height: 100%; border-radius: 99px; background: var(--accent); }
-/* Calories: resting + moving, as one bar per kind of day */
-.cb { margin-top: 18px; }
-.cb-row + .cb-row { margin-top: 12px; }
-.cb-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; color: var(--text-2); }
-.cb-head b { color: var(--text); font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.cb-track { display: flex; gap: 2px; height: 10px; margin-top: 6px; }
-.cb-track i { display: block; height: 100%; }
-.cb-track i:first-child { border-radius: 99px 0 0 99px; background: #4a525e; }
-.cb-track i:last-child { border-radius: 0 99px 99px 0; background: var(--accent); }
+/* Best bedtime: one bar per asleep-by time, its length the score; the best one in orange */
+.barlist .r-main { flex: 0 0 150px; }
+.barlist .r-label { white-space: nowrap; }
+.barlist .r-value { flex: 1; display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+.barlist .sbar { flex: 1; width: auto; height: 8px; margin: 0; }
+.barlist .sbar i { background: #4a525e; }
+.barlist .r-value.accent .sbar i { background: var(--accent); }
 .strip.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 /* Reasons list (workout) */
 .why { list-style: none; margin: 14px 0 0; padding: 0; }
@@ -175,7 +198,6 @@ html { scrollbar-color: #3a424d transparent; }
 /* Tonight */
 .plan { margin-top: 12px; font: 600 34px/1.15 var(--display); letter-spacing: -0.02em; color: var(--text); }
 .plan b { color: var(--accent); font-weight: 650; }
-.plan-note { margin-top: 8px; }
 .now-pill { display: inline-flex; align-items: center; gap: 6px; margin-top: 12px; padding: 5px 12px 5px 9px;
   border-radius: 99px; background: var(--accent-soft); color: var(--accent); font-size: 13px; font-weight: 600; }
 .now-pill .ms { font-size: 17px; vertical-align: 0; }
@@ -217,7 +239,17 @@ a.act:hover + a.act, a.act:hover { box-shadow: none; }
 .stats4 > div { text-align: left; }
 
 /* Tall segmented bar (easy / moderate / hard) */
-.seg { display: flex; gap: 2px; height: 28px; margin: 16px 0 12px; }
+.seg { position: relative; display: flex; gap: 2px; height: 28px; margin: 16px 0 12px; }
+.seg .target { position: absolute; top: -5px; bottom: -5px; width: 2px; margin-left: -1px; border-radius: 1px;
+  background: var(--text); box-shadow: 0 0 0 2px var(--card); }
+.key.mark { width: 2px; height: 12px; border-radius: 1px; background: var(--text); vertical-align: -1px; }
+/* A card whose list opens on click (the summary is the card's title row) */
+details.list > summary { list-style: none; cursor: pointer; }
+details.list > summary::-webkit-details-marker { display: none; }
+details.list > summary .ms { font-size: 20px; margin-left: 4px; vertical-align: -5px; transition: transform .2s cubic-bezier(.2, .7, .2, 1); }
+details.list[open] > summary .ms { transform: rotate(180deg); }
+details.list > summary:hover .card-aside { color: var(--text); }
+.card-aside a .ms { font-size: 15px; margin-left: 3px; vertical-align: -2px; }
 .seg > div { border-radius: 4px; display: flex; align-items: center; padding-left: 8px; font-size: 12.5px;
   font-weight: 650; min-width: 0; overflow: hidden; white-space: nowrap; }
 .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; }
@@ -260,7 +292,7 @@ button[data-variant="segmented_control"]:hover { color: var(--text) !important; 
 
 /* Each chart's slot starts at the chart's final height (the `height` in charts.py), so cards
    don't grow and shove each other down as charts finish drawing */
-.st-key-chart_recent { min-height: 120px; }
+.st-key-chart_recent { min-height: 94px; }
 .st-key-chart_scores { min-height: 120px; }
 .st-key-chart_vo2 { min-height: 140px; }
 .st-key-chart_hours { min-height: 150px; }
@@ -367,7 +399,6 @@ button[data-variant="segmented_control"]:hover { color: var(--text) !important; 
 .tl-axis span { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; }
 .tl-axis span:first-child { transform: none; }
 .tl-axis span:last-child { transform: translateX(-100%); }
-.plan-sub { color: var(--muted); font-size: 13px; margin-top: 6px; }
 
 /* Workout suggestion */
 .plan-row { display: flex; align-items: center; gap: 14px; margin-top: 14px; }
@@ -389,8 +420,9 @@ button[data-variant="segmented_control"]:hover { color: var(--text) !important; 
   background: var(--accent); color: #14171c; filter: brightness(1.08); }
 [data-testid="stBaseButton-primaryFormSubmit"] p { font-weight: 650; }
 [data-testid="stForm"] { padding: 0; border: none; }
-.st-key-logform, .st-key-bufferbox, .st-key-mealform, .st-key-reviewform { padding: 0 6px; }
+.st-key-logform, .st-key-mealform, .st-key-reviewform { padding: 0 6px; }
 [class*="st-key-card"] [data-testid="stFileUploaderDropzone"] { background: var(--card-2); border-radius: 14px; }
+[data-testid="stFileUploaderDropzoneInstructions"] { display: none; }  /* "200MB per file • JPG…" */
 .stMarkdown code { background: var(--card-2); color: var(--text); padding: 1px 6px; border-radius: 6px; font-size: 13px; }
 .st-key-mealrows [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; border-top: 1px solid var(--line);
   margin: 0 6px; align-items: center; }
@@ -425,7 +457,8 @@ button[data-variant="segmented_control"]:hover { color: var(--text) !important; 
   .st-key-tab button[data-variant="segmented_control"] { padding: 4px 1px !important; }
   .st-key-tab button[data-variant="segmented_control"] p { font-size: 11px; letter-spacing: .02em; }
   .act-stats .opt { display: none; }
-  .tl-axis span:nth-child(even) { display: none; }  /* every 4 hours fits a phone */
+  .barlist .r-main { flex-basis: 166px; }
+  .barlist .r-value { gap: 8px; }
   /* Weight log: weight + day side by side, Save full width below */
   .st-key-logform [data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; row-gap: 10px; }
   .st-key-logform [data-testid="stColumn"] { flex: 1 1 calc(50% - 6px) !important; width: calc(50% - 6px) !important; }
@@ -525,8 +558,36 @@ def icon(name, cls=""):
     return f'<span class="ms {cls}" aria-hidden="true">{name}</span>'
 
 
-def chip(status, text):
-    return f'<span class="chip {status}">{icon(STATUS_ICON[status])}{escape(text)}</span>'
+def tip_attr(tip):
+    """Hover text for an element (the detail that used to be written out under it)."""
+    return f' title="{escape(tip)}"' if tip else ""
+
+
+def chip(status, text, tip=""):
+    return f'<span class="chip {status}"{tip_attr(tip)}>{icon(STATUS_ICON[status])}{escape(text)}</span>'
+
+
+def pill(name, text, cls="neutral", tip=""):
+    """A chip with its own icon, for facts that aren't good/bad, like "by 10:30 pm"."""
+    return f'<span class="chip {cls}"{tip_attr(tip)}>{icon(name)}{escape(text)}</span>'
+
+
+def delta(change, text, good_when_up=True, tip="", small=0):
+    """A small change marker: the arrow shows the direction, the colour whether that's good
+    (good_when_up=None: neither, like weight). Changes of `small` or less stay grey, so noise
+    doesn't look like news. `text` is the size of the change, without a sign."""
+    arrow = "trending_flat" if change == 0 else "arrow_upward" if change > 0 else "arrow_downward"
+    tone = ("neutral" if abs(change) <= small or good_when_up is None
+            else "good" if (change > 0) == good_when_up else "low")
+    said = f"{'no change' if change == 0 else 'up' if change > 0 else 'down'} {text}"
+    return (f'<span class="delta {tone}" role="img" aria-label="{escape(said)}"{tip_attr(tip)}>'
+            f'{icon(arrow)}{escape(text)}</span>')
+
+
+def more(body, summary="How it works"):
+    """An explanation that stays closed until clicked, so the card itself is just the visual."""
+    return (f'<details class="more"><summary>{icon("expand_more")}{summary}</summary>'
+            f'<div class="more-body">{body}</div></details>')
 
 
 def meter(fraction, status=""):
@@ -534,18 +595,17 @@ def meter(fraction, status=""):
     return f'<div class="meter" role="presentation"><i class="{status}" style="width:{width:.0f}%"></i></div>'
 
 
-def row(label, value, unit="", sub="", lead="", value_cls=""):
+def row(label, value, unit="", sub="", lead="", value_cls="", tip=""):
     unit_html = f"<small>{unit}</small>" if unit else ""
     sub_html = f'<div class="r-sub">{sub}</div>' if sub else ""
-    return (f'<div class="r">{lead}<div class="r-main"><div class="r-label">{label}</div>{sub_html}</div>'
+    return (f'<div class="r"{tip_attr(tip)}>{lead}<div class="r-main"><div class="r-label">{label}</div>{sub_html}</div>'
             f'<div class="r-value {value_cls}">{value}{unit_html}</div></div>')
 
 
-def meter_row(label, value, unit, fraction, sub="", status=""):
+def meter_row(label, value, unit, fraction, status="", tip=""):
     unit_html = f"<small>{unit}</small>" if unit else ""
-    sub_html = f'<div class="r-sub">{sub}</div>' if sub else ""
-    return (f'<div class="r stack"><div class="r-top"><div class="r-label">{label}</div>'
-            f'<div class="r-value">{value}{unit_html}</div></div>{meter(fraction, status)}{sub_html}</div>')
+    return (f'<div class="r stack"{tip_attr(tip)}><div class="r-top"><div class="r-label">{label}</div>'
+            f'<div class="r-value">{value}{unit_html}</div></div>{meter(fraction, status)}</div>')
 
 
 def card(inner, cls=""):
@@ -563,18 +623,20 @@ def notice(text, name="info"):
 
 
 def strip(items):
-    cells = "".join(f'<div><div class="strip-v">{v}</div><div class="strip-k">{k}</div></div>' for v, k in items)
+    """Stat tiles side by side. items: (value, label) or (value, label, hover text)."""
+    cells = "".join(f'<div{tip_attr(tip[0] if tip else "")}><div class="strip-v">{v}</div><div class="strip-k">{k}</div></div>'
+                    for v, k, *tip in items)
     return f'<div class="strip{" two" if len(items) == 2 else ""}">{cells}</div>'
 
 
 LEVELS = [("Rest", "low"), ("Easy", "ok"), ("Normal", "good"), ("Hard", "good")]
 
 
-def readiness_scale(level):
+def readiness_scale(level, said=""):
     """Four steps from Rest to Hard; today's step lit up (the words say it too, not just colour)."""
     cells = "".join(f'<div class="lv {status}{" on" if i == level else ""}"><i></i><span>{name}</span></div>'
                     for i, (name, status) in enumerate(LEVELS))
-    return f'<div class="levels" role="img" aria-label="Readiness: {LEVELS[level][0]}">{cells}</div>'
+    return f'<div class="levels" role="img" aria-label="{escape(said or LEVELS[level][0])}">{cells}</div>'
 
 
 def bullet(x, band, domain, status):
@@ -589,33 +651,14 @@ def bullet(x, band, domain, status):
             f'<i class="dot {status}" style="left:{pct(x):.1f}%"></i></div>')
 
 
-def bullet_row(label, value, unit, x, band, domain, status, sub):
+def bullet_row(label, value, unit, x, band, domain, status, tip=""):
     unit_html = f"<small>{unit}</small>" if unit else ""
-    return (f'<div class="r stack"><div class="r-top"><div class="r-label">{label}</div>'
-            f'<div class="r-value">{value}{unit_html}</div></div>{bullet(x, band, domain, status)}'
-            f'<div class="r-sub">{sub}</div></div>')
+    return (f'<div class="r stack"{tip_attr(tip)}><div class="r-top"><div class="r-label">{label}</div>'
+            f'<div class="r-value">{value}{unit_html}</div></div>{bullet(x, band, domain, status)}</div>')
 
 
 def score_bar(score):
     return f'<span class="sbar"><i style="width:{max(0, min(100, score)):.0f}%"></i></span>'
-
-
-def burn_bars(rows):
-    """rows: (label, resting cal, total cal). One bar per row, split into resting and moving."""
-    top = max(total for _, _, total in rows)
-    out = ""
-    for label, resting, total in rows:
-        out += (f'<div class="cb-row"><div class="cb-head"><span>{label}</span><b>{num(total)}</b></div>'
-                f'<div class="cb-track" title="{num(resting)} at rest + {num(total - resting)} from moving">'
-                f'<i style="width:{resting / top * 100:.1f}%"></i>'
-                f'<i style="width:{max(total - resting, 0) / top * 100:.1f}%"></i></div></div>')
-    return f'<div class="cb">{out}</div>'
-
-
-def trend_chip(change, text):
-    """A neutral chip with an up / down / flat arrow (weight change is neither good nor bad on its own)."""
-    arrow = "trending_flat" if change == 0 else "trending_up" if change > 0 else "trending_down"
-    return f'<span class="chip neutral">{icon(arrow)}{escape(text)}</span>'
 
 
 def sync_pill(fraction, step):
@@ -648,22 +691,23 @@ def hour_label(hours):
 
 def sleep_timeline(rows, label):
     """Bars on a shared night-time axis (hours where 25 = 1 am).
-    rows: (name, start, end, detail_html, css_class). label describes it for screen readers."""
+    rows: (name, start, end, detail_html, css_class[, hover text]). label describes it for screen readers."""
     lo = math.floor(min(r[1] for r in rows) - 0.25)
     lo -= lo % 2                                   # start and end on even hours...
     hi = math.ceil(max(r[2] for r in rows) + 0.25)
-    hi += hi % 2                                   # ...so a tick lands every 2 hours, ends included
+    hi += hi % 2
+    hi += (hi - lo) % 4                            # ...so a tick lands every 4 hours, ends included
     span = hi - lo
 
     def pos(h):
         return (h - lo) / span * 100
 
     bars = "".join(
-        f'<div class="tl-row"><div class="tl-head"><span class="tl-name">{name}</span>'
+        f'<div class="tl-row"{tip_attr(tip[0] if tip else "")}><div class="tl-head"><span class="tl-name">{name}</span>'
         f'<span class="tl-detail">{detail}</span></div>'
         f'<div class="tl-track"><i class="{cls}" style="left:{pos(a):.1f}%; width:{pos(b) - pos(a):.1f}%"></i></div></div>'
-        for name, a, b, detail, cls in rows)
-    ticks = "".join(f'<span style="left:{pos(h):.1f}%">{hour_label(h)}</span>' for h in range(lo, hi + 1, 2))
+        for name, a, b, detail, cls, *tip in rows)
+    ticks = "".join(f'<span style="left:{pos(h):.1f}%">{hour_label(h)}</span>' for h in range(lo, hi + 1, 4))
     return f'<div class="tl" role="img" aria-label="{escape(label)}">{bars}<div class="tl-axis">{ticks}</div></div>'
 
 

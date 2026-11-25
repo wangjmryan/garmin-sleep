@@ -209,23 +209,32 @@ def today_tab():
         week_card("phone-only")  # phone: last, after "should I push today?"
 
 
+HELD_CHIP = {  # the parts of the night Garmin rated only Fair or Poor, as one-word chips
+    "not enough sleep": "Short", "stress while asleep": "Stress", "waking up during the night": "Wakeful",
+    "restless sleep": "Restless", "little deep sleep": "Low deep", "little REM sleep": "Low REM",
+    "a lot of light sleep": "Light",
+}
+
+
 def last_night_card(night, night_day):
     before = sleep[sleep["date"] < night["date"]].tail(30)
     usual = before["sleep_score"].mean()
     score = night["sleep_score"]
     status, word = (("good", "Excellent") if score >= 90 else ("good", "Good") if score >= 80
                     else ("ok", "Fair") if score >= 60 else ("low", "Poor"))
-    held = I.held_back_by(night)
-    note = (f"Held back by {join_words(held)}." if held
-            else "Every part of your sleep rated Good or better.")
+    chips = chip(status, word) + "".join(chip("ok", HELD_CHIP.get(h, h.capitalize()), tip=f"Held back by {h}")
+                                         for h in I.held_back_by(night))
+    corner = ""
+    if pd.notna(score - usual):  # no usual yet, or a night Garmin didn't score
+        vs = round(score - usual)
+        corner = (f'<div class="corner"><div class="k">vs usual</div><div class="v">'
+                  f'{ui.delta(vs, str(abs(vs)), tip=f"Your usual is {usual:.0f}", small=1)}</div></div>')
     week = I.in_window(sleep, night["date"], 7)
     with st.container(key="card_night"):
-        html(f'<div class="hero"><div class="corner"><div class="k">Your usual</div><div class="v">{usual:.0f}</div></div>'
-             f'<h2 class="h3">{I.night_name(night_day, today)}</h2>'
-             f'<div class="figure">{score:.0f}<small>sleep score</small></div>{chip(status, word)}'
-             f'<div class="hero-meta">{dur(night["total_sleep_hours"])} asleep · '
-             f'{hhmm(night["bedtime"])} – {hhmm(night["wake_time"])}</div>'
-             f'<div class="hero-note">{note}</div></div>')
+        html(f'<div class="hero">{corner}<h2 class="h3">{I.night_name(night_day, today)}</h2>'
+             f'<div class="figure">{score:.0f}<small>sleep score</small></div><div class="chips">{chips}</div>'
+             f'<div class="hero-meta">{dur(night["total_sleep_hours"])} · '
+             f'{clock_range(I.clock_hours(night["bedtime"]), I.clock_hours(night["wake_time"]))}</div></div>')
         chart("recent", charts.recent_scores(week, usual, night["date"] - pd.Timedelta(days=6), night["date"]),
                         width="stretch")
 
@@ -235,47 +244,42 @@ def tonight_card(t, night_of):
     need_h = t["need_min"] / 60
     now_h = now.hour + now.minute / 60 + (24 if night_of < today else 0)  # same scale as t: 1 am = 25
     best, latest, wake = t["best"], t["latest"], t["wake"]
-    evening_name = f"{night_of:%A} night"
 
     pill = ""
     if latest and best <= now_h <= latest:
-        pill = f'<div class="now-pill">{icon("bedtime")}You\'re in your bedtime window now</div>'
+        pill = f'<div class="now-pill">{icon("bedtime")}Bedtime now</div>'
     elif latest and latest < now_h < wake:
-        pill = f'<div class="now-pill">{icon("bedtime")}Past your bedtime window</div>'
+        pill = f'<div class="now-pill">{icon("bedtime")}Past bedtime</div>'
     elif 0 < best - now_h <= 3:
-        pill = f'<div class="now-pill">{icon("schedule")}Bedtime in {dur(best - now_h)}</div>'
+        pill = f'<div class="now-pill">{icon("schedule")}In {dur(best - now_h)}</div>'
 
     def span(a):
-        return f"{clock(a)} – {clock(wake)} · <b>{dur(I.sleep_between(t, a))}</b>"
+        return f"{clock_range(a, wake)} · <b>{dur(I.sleep_between(t, a))}</b>"
 
-    bars = [("Best", best, wake, span(best), "best")]
-    if best < now_h < wake - 1:  # the best time has passed: show what's still possible
-        bars.append(("If you fall asleep now", now_h, wake, span(now_h), "now"))
-    bars.append((f"Your usual {evening_name}", t["usual_bed"], wake, span(t["usual_bed"]), "usual"))
     gain = I.sleep_between(t, best) - I.sleep_between(t, t["usual_bed"])
+    extra_sleep = f" {ui.delta(gain, dur(gain), tip='More sleep than your usual night')}" if gain >= 0.25 else ""
+    bars = [("Best", best, wake, span(best) + extra_sleep, "best",
+             f"Garmin's bedtime window ends {clock(latest)}" if latest else "")]
+    if best < now_h < wake - 1:  # the best time has passed: show what's still possible
+        bars.append(("Now", now_h, wake, span(now_h), "now", "If you fall asleep now"))
+    bars.append(("Usual", t["usual_bed"], wake, span(t["usual_bed"]), "usual", f"Your usual {night_of:%A} night"))
     timeline = ui.sleep_timeline(bars, f"Asleep at {clock(best)} gives {dur(I.sleep_between(t, best))} of sleep; "
                                        f"your usual {clock(t['usual_bed'])} gives {dur(I.sleep_between(t, t['usual_bed']))}.")
-    sub = f"Latest {clock(latest)}, the end of Garmin's bedtime window" if latest else ""
-    if gain >= 0.25:
-        sub += f"{'. ' if sub else ''}That's {dur(gain)} more sleep than your usual {evening_name}."
 
     extra = t["extra_min"]
     if extra >= 10:
-        need_sub = (f"{dur_min(extra)} above your usual {dur_min(t['base_min'])}"
+        need_tip = (f"{dur_min(extra)} above your usual {dur_min(t['base_min'])}"
                     + (f", because of {join_words(t['reasons'])}" if t["reasons"] else ""))
     else:
-        need_sub = "Your usual need"
+        need_tip = "Your usual need"
     if not t["fresh"]:
-        need_sub += f" · Garmin's latest estimate ({day(t['estimate_from'])})"
-    rows = row("Sleep need", dur(need_h), sub=need_sub)
+        need_tip += f" · Garmin's latest estimate ({day(t['estimate_from'])})"
+    need = dur(need_h) + (f" {ui.delta(extra, dur_min(extra), None)}" if extra >= 10 else "")
     fc = t["first_class"]
-    wake_sub = (f"{wake_buffer()} min before {class_name(fc)} at {clock(fc['start'])}" if fc
-                else "Your usual on " + f"{t['wake_day']:%A}s" + (" (no class)" if classes else ""))
-    rows += row(f"{t['wake_day']:%A} wake-up", clock(wake), sub=wake_sub)
-    html(card(card_head("Tonight", evening_name)
-              + f'<div class="plan">Best bedtime <b>{clock(best)}</b></div>'
-              + (f'<div class="plan-sub">{sub}</div>' if sub else "") + pill + timeline
-              + f'<div class="rows" style="margin-top:10px">{rows}</div>'))
+    wake_tip = (f"{wake_buffer()} min before {class_name(fc)} at {clock(fc['start'])}" if fc
+                else f"Your usual on {t['wake_day']:%A}s" + (" (no class)" if classes else ""))
+    tiles = strip([(need, "Sleep need", need_tip), (clock(wake), "Wake-up", f"{t['wake_day']:%A}: {wake_tip}")])
+    html(card(card_head("Tonight") + f'<div class="plan">Bed by <b>{clock(best)}</b></div>' + pill + timeline + tiles))
 
 
 def workout_card(rec, t):
@@ -293,59 +297,63 @@ def workout_card(rec, t):
     if not p:
         return
 
-    rows, foot = "", "The app's suggestion from your recovery, recent workouts and training balance."
+    rows, chips, why = "", "", p.get("why", [])
     if p["kind"] == "done":
-        did = join_words(f"a {dur_min(a['duration_min'])} {ui.SPORT_NAME[a['sport']].lower()}"
-                         for _, a in p["done"].iterrows())
-        body = (f'<div class="plan-row"><div class="tile">{icon("task_alt")}</div><div class="plan">Done for today</div></div>'
-                f'<div class="body plan-note">You did {did} today. Eat well and get to bed on time.</div>')
+        ic, plan = "task_alt", "Done for today"
+        chips = "".join(ui.pill(ui.SPORT_ICON[a["sport"]], f"{ui.SPORT_NAME[a['sport']]} {dur_min(a['duration_min'])}")
+                        for _, a in p["done"].iterrows())
+        how = "Eat well and get to bed on time."
     elif p["kind"] == "rest":
-        body = (f'<div class="plan-row"><div class="tile">{icon("self_improvement")}</div><div class="plan">Rest day</div></div>'
-                '<div class="body plan-note">Skip training, or go for an easy 20–30 min walk. '
-                'Your body gets fitter while it recovers.</div>'
-                + '<ul class="why">' + "".join(f"<li>{icon(ic)}<span>{t_}</span></li>" for ic, t_ in p["why"]) + "</ul>")
+        ic, plan = "self_improvement", "Rest day"
+        chips = ui.pill("directions_walk", "Walk 20–30 min", tip="Optional, at an easy pace")
+        how = "Skip training, or go for an easy 20–30 min walk. Your body gets fitter while it recovers."
     else:
         m = p["main"]
-        how = m["how"]
-        if p["kind"] == "easy" and m["sport"] in ("run", "bike") and p["hr_limit"]:
-            how += f" Keep your heart rate under about {p['hr_limit']} bpm (zone 2)."
-        reasons = p["why"][:3] + ([(ui.SPORT_ICON[m["sport"]], p["sport_note"])] if p["sport_note"] else [])
-        why = "".join(f"<li>{icon(ic)}<span>{text}</span></li>" for ic, text in reasons)
-        body = (f'<div class="plan-row"><div class="tile">{icon(ui.SPORT_ICON[m["sport"]])}</div>'
-                f'<div class="plan">{m["name"]} <b>{m["minutes"]} min</b></div></div>'
-                f'<div class="body plan-note">{how}</div><ul class="why">{why}</ul>')
-        hard = p["kind"] == "hard"
-        timing = ("Hard efforts in the 2 hours before bed can make it harder to fall asleep." if hard
+        ic, plan = ui.SPORT_ICON[m["sport"]], f'{m["name"]} <b>{m["minutes"]} min</b>'
+        timing = ("Hard efforts in the 2 hours before bed can make it harder to fall asleep." if p["kind"] == "hard"
                   else "Finish an hour before bed so you can wind down.")
-        if p["usual_start"] and p["usual_start"] + m["minutes"] / 60 > p["finish_by"]:
+        late = p["usual_start"] and p["usual_start"] + m["minutes"] / 60 > p["finish_by"]
+        if late:
             timing += f" You usually start around {clock(p['usual_start'])}, so go earlier if you can."
-        rows += row("Best time", f"by {clock(p['finish_by'])}", sub=timing,
-                    lead=icon("schedule", "r-ic accent"))
+        chips = ui.pill("schedule", f"by {clock(p['finish_by'])}", "ok" if late else "neutral", tip=timing)
+        how = f"{m['how']} {timing}"
+        if p["kind"] == "easy" and m["sport"] in ("run", "bike") and p["hr_limit"]:
+            chips += ui.pill("favorite", f"under {p['hr_limit']} bpm", tip="Heart-rate zone 2")
+            how += f" Keep your heart rate under about {p['hr_limit']} bpm (zone 2)."
+        why = p["why"][:3] + ([(ui.SPORT_ICON[m["sport"]], p["sport_note"])] if p["sport_note"] else [])
         a = p["alt"]
         if a:
             alt_how = (f"Heart rate under about {p['hr_limit']} bpm" if p["kind"] == "easy" and a["sport"] != "swim"
                        and p["hr_limit"] else a["how"])
-            rows += row(f"Or: {a['name'].lower()}", f"{a['minutes']} min", sub=alt_how,
-                        lead=f'<div class="tile">{icon(ui.SPORT_ICON[a["sport"]])}</div>')
+            rows = row(f"Or {a['name'].lower()}", f"{a['minutes']} min", tip=alt_how,
+                       lead=f'<div class="tile">{icon(ui.SPORT_ICON[a["sport"]])}</div>')
+    foot = "The app's suggestion from your recovery, recent workouts and training balance."
     if when == "Tomorrow" and p["kind"] != "done":
-        foot = "It's late to train today, so this is for tomorrow. It updates after tonight's sleep syncs."
-    html(card(card_head("Workout", when) + body + (f'<div class="rows">{rows}</div>' if rows else "")
-              + f'<div class="card-foot">{foot}</div>'))
+        foot = "It's late to train today, so this is for tomorrow. It updates after tonight's sleep syncs. " + foot
+    reasons = "".join(f"<li>{icon(i)}<span>{text}</span></li>" for i, text in why)
+    html(card(card_head("Workout", when)
+              + f'<div class="plan-row"><div class="tile">{icon(ic)}</div><div class="plan">{plan}</div></div>'
+              + f'<div class="chips">{chips}</div>' + (f'<div class="rows">{rows}</div>' if rows else "")
+              + ui.more(f"<p>{how}</p>" + (f'<ul class="why">{reasons}</ul>' if reasons else "") + f"<p>{foot}</p>",
+                        "Why?")))
+
+
+SIGNAL_LABEL = {"hrv": "HRV", "rhr": "Resting HR", "load": "7-day load"}  # short names for the bars
 
 
 def recovery_card(r):
     if not r["verdict"]:
         return
     status, title, text = r["verdict"]
-    rows = "".join(ui.bullet_row(s["label"], s["value"], s["unit"], s["x"], s["band"], s["domain"],
-                                 s["status"], s["note"]) for s in r["signals"])
-    html(card(card_head("Recovery", "Should you push today?")
-              + f'<div class="statement">{title}</div>' + ui.readiness_scale(r["level"])
-              + f'<div class="statement-text">{text}</div>'
+    rows = "".join(ui.bullet_row(SIGNAL_LABEL.get(s["key"], s["label"]), s["value"], s["unit"], s["x"], s["band"],
+                                 s["domain"], s["status"], tip=f'{s["label"]}: {s["note"]}') for s in r["signals"])
+    notes = "".join(f'<li>{s["label"]}: {s["note"]}</li>' for s in r["signals"])
+    html(card(card_head("Recovery") + ui.readiness_scale(r["level"], f"{title}. {text}")
               + f'<div class="rows">{rows}</div>'
-              + '<div class="card-foot">Green shading is your normal range; the dot is today. It turns '
-                '<b>Hard</b> when sleep, HRV and resting heart rate all look normal. This is the app\'s own '
-                "check: Garmin doesn't share its Training Readiness score.</div>"))
+              + ui.more(f"<p><b>{title}.</b> {text}</p><ul>{notes}</ul>"
+                        "<p>Green shading is your normal range; the dot is today. It turns <b>Hard</b> when sleep, "
+                        "HRV and resting heart rate all look normal. This is the app's own check: Garmin doesn't "
+                        "share its Training Readiness score.</p>")))
 
 
 def week_card(where=""):
@@ -355,13 +363,13 @@ def week_card(where=""):
     rows = ""
     if rs:
         met = rs["avg_hours"] >= rs["avg_need"] - 0.25
-        rows += meter_row("Sleep", dur(rs["avg_hours"]), f"/ {dur(rs['avg_need'])} need", rs["avg_hours"] / rs["avg_need"],
-                          sub=f"Met your need on {rs['nights_met']} of {rs['nights']} nights",
-                          status="good" if met else "")
+        rows += meter_row("Sleep", dur(rs["avg_hours"]), f"/ {dur(rs['avg_need'])}", rs["avg_hours"] / rs["avg_need"],
+                          status="good" if met else "",
+                          tip=f"Average a night against your need. Met it on {rs['nights_met']} of {rs['nights']} nights")
     if not d7.empty:
         minutes = (d7["intensity_moderate"] + 2 * d7["intensity_vigorous"]).sum()
         rows += meter_row("Intensity minutes", num(minutes), "/ 150", minutes / 150,
-                          sub="Vigorous minutes count double", status="good" if minutes >= 150 else "")
+                          status="good" if minutes >= 150 else "", tip="Vigorous minutes count double")
     by_sport = a7.groupby("sport")["duration_min"].sum() if not a7.empty else pd.Series(dtype=float)
     detail = " · ".join(f"{ui.SPORT_NAME[s]} {dur_min(m)}" for s, m in by_sport.items()) or "No workouts"
     rows += row("Workouts", str(len(a7)), "", sub=detail)
@@ -380,25 +388,28 @@ def sleep_tab():
     avg = cur["sleep_score"].mean()
     status, word = (("good", "Good") if avg >= 80 else ("ok", "Fair") if avg >= 60 else ("low", "Poor"))
     need = cur.apply(I.need_hours, axis=1).mean()
-    corner = (f'<div class="corner"><div class="k">Previous {label}</div><div class="v">{prev["sleep_score"].mean():.0f}</div></div>'
-              if len(prev) >= 5 else "")
+    corner = ""
+    before = prev["sleep_score"].mean() if len(prev) >= 5 else None
+    if before is not None and pd.notna(avg - before):
+        vs = round(avg - before)
+        corner = (f'<div class="corner"><div class="k">vs previous</div><div class="v">'
+                  f'{ui.delta(vs, str(abs(vs)), tip=f"Previous {label}: {before:.0f}", small=1)}</div></div>')
     wake = cur["wake_time"].map(I.clock_hours).mean()
-    html(card(f'<div class="hero">{corner}<h2 class="h3">Average sleep score</h2>'
-              f'<div class="figure">{avg:.0f}</div>{chip(status, word)}'
-              f'<div class="hero-meta">{len(cur)} nights recorded</div></div>'
-              + strip([(dur(cur["total_sleep_hours"].mean()), f"Asleep a night<br>(need {dur(need)})"),
-                       (clock(cur["bedtime_hours"].mean()), "Usually<br>asleep by"),
-                       (clock(wake), "Usually<br>up at")])))
+    html(card(f'<div class="hero">{corner}<h2 class="h3">Sleep score</h2>'
+              f'<div class="figure">{avg:.0f}<small>avg</small></div><div class="chips">{chip(status, word)}</div>'
+              f'<div class="hero-note">{len(cur)} nights</div></div>'
+              + strip([(dur(cur["total_sleep_hours"].mean()), "Asleep", f"Average a night; your need is about {dur(need)}"),
+                       (clock(cur["bedtime_hours"].mean()), "Bedtime", "When you usually fall asleep"),
+                       (clock(wake), "Wake-up", "When you usually wake up")])))
 
     left, right = st.columns(2)  # fixed columns: cards never jump between them while loading
     with left:
         with st.container(key="card_nightly"):
-            html('<div class="inset">' + card_head("Night by night")
-                 + '<div class="r-sub">Short nights pull the score down. Hover a night for details.</div></div>')
+            html('<div class="inset">' + card_head("Night by night") + '</div>')
             first_day = END - pd.Timedelta(days=days - 1)
             chart("hours", charts.nightly_hours(cur, need, first_day, END), width="stretch")
             chart("scores", charts.nightly_scores(cur, first_day, END), width="stretch")
-        stages_card(cur, label, first_day)
+        stages_card(cur, first_day)
         drivers_card(cur, label)
     with right:
         bedtime_card()
@@ -409,32 +420,38 @@ STAGE_INK = {"Deep": "#ffffff", "Light": "#0b0b0b", "REM": "#0b0b0b"}  # readabl
 STAGE_MEANING = {"Deep": "body repair and recovery", "Light": "most of the night", "REM": "memory and mood"}
 
 
-def stages_card(cur, label, first_day):
+def stages_card(cur, first_day):
     """Average split of deep, light and REM sleep, then the same night by night."""
     s = I.stage_summary(cur)
     if not s:
         return
-    blocks = "".join(
-        f'<div style="flex:{v["share"]}; background:{charts.STAGE_COLORS[n]}; color:{STAGE_INK[n]}" '
-        f'title="{n}: {v["share"]:.0%}, {dur(v["hours"])} a night">{v["share"]:.0%}</div>' for n, v in s.items())
-    rows = "".join(
-        f'<span><i class="key" style="background:{charts.STAGE_COLORS[n]}"></i><b>{n}</b> {dur(v["hours"])}'
-        + (f' · rated good {v["good"]:.0%} of nights' if v["good"] is not None else "") + "</span>"
-        for n, v in s.items())
     weakest = min((n for n in s if s[n]["good"] is not None), key=lambda n: s[n]["good"], default=None)
-    note = ""
-    if weakest and s[weakest]["good"] < 0.8:
-        note = (f"<b>{weakest}</b> ({STAGE_MEANING[weakest]}) is the stage Garmin most often rates below good. "
-                + ("REM comes mostly late in the night, so short nights cut it first." if weakest == "REM" else ""))
+    if weakest and s[weakest]["good"] >= 0.8:
+        weakest = None
+
+    def tip(n, v):
+        text = f"{n}: {v['share']:.0%}, {dur(v['hours'])} a night"
+        if v["good"] is not None:
+            text += f", rated good on {v['good']:.0%} of nights"
+        if n == weakest:
+            text += (f". {n} ({STAGE_MEANING[n]}) is the stage Garmin most often rates below good."
+                     + (" REM comes mostly late in the night, so short nights cut it first." if n == "REM" else ""))
+        return text
+
+    blocks = "".join(
+        f'<div style="flex:{v["share"]}; background:{charts.STAGE_COLORS[n]}; color:{STAGE_INK[n]}"'
+        f'{ui.tip_attr(tip(n, v))}>{v["share"]:.0%}</div>' for n, v in s.items())
+    legend = "".join(
+        f'<span{ui.tip_attr(tip(n, v))}><i class="key" style="background:{charts.STAGE_COLORS[n]}"></i><b>{n}</b></span>'
+        for n, v in s.items())
+    flag = (f'<div class="chips">{chip("ok", f"{weakest} often low", tip=tip(weakest, s[weakest]))}</div>'
+            if weakest else "")
     with st.container(key="card_stages"):
-        html('<div class="inset">' + card_head("Sleep stages", f"average, last {label}")
+        html('<div class="inset">' + card_head("Sleep stages", "average")
              + f'<div class="seg" role="img" aria-label="'
              + ", ".join(f'{n} {v["share"]:.0%}' for n, v in s.items()) + f'">{blocks}</div>'
-             + f'<div class="legend" style="flex-direction:column; gap:6px">{rows}</div>'
-             + (f'<div class="body small" style="margin-top:12px">{note}</div>' if note else "") + '</div>')
+             + f'<div class="legend">{legend}</div>{flag}</div>')
         chart("stages", charts.nightly_stages(cur, first_day, END), width="stretch")
-        html('<div class="inset card-foot" style="margin-top:0">Hours in each stage, night by night. '
-             'Hover a bar for details.</div>')
 
 
 CLASS_KIND = {"LEC": "lecture", "TUT": "tutorial", "LAB": "lab", "SEM": "seminar", "TST": "test"}
@@ -481,27 +498,21 @@ def week_card_sleep():
     start = today if now.hour >= 5 else today - timedelta(days=1)
     plan = I.week_plan(sleep, classes, start, buffer_min=buffer)
     with st.container(key="card_week"):
-        html('<div class="inset">' + card_head("Your week", f"asleep by, for {dur(plan[0]['need'])} of sleep")
-             + '<div class="r-sub" style="margin-top:6px">'
-             + ("Each day's first class and wake-up, and when to be asleep the night before. "
-                "Days without class use your usual wake-up." if classes
-                else "Add your class schedule below to plan wake-ups around your classes.")
-             + '</div></div>')
         rows = ""
         for i, p in enumerate(plan):
             fc = p["first_class"]
-            sub = (f"{class_name(fc)} at {clock(fc['start'])} · up {clock(p['wake'])}" if fc
-                   else f"No class · usually up {clock(p['wake'])}")
-            label = f"{p['morning']:%A}" + ('<span class="tag accent">Tomorrow</span>' if i == 0 else "")
-            rows += row(label, clock(p["asleep_by"]), f"{p['night']:%a} night", sub=sub,
-                        value_cls="accent" if i == 0 else "")
-        html(f'<div class="inset"><div class="rows">{rows}</div></div>')
-        if classes:
-            with st.container(key="bufferbox"):
-                st.number_input("Wake up this many minutes before your first class", min_value=10, max_value=180,
-                                value=buffer, step=5, key="buffer", on_change=save_buffer)
+            tip = ((f"{class_name(fc)} at {clock(fc['start'])} · up {clock(p['wake'])}" if fc
+                    else f"No class · usually up {clock(p['wake'])}") + f" · asleep by this on {p['night']:%A} night")
+            label = (f"{p['morning']:%a}" + (f'{icon("school")}<small>{clock(fc["start"])}</small>' if fc else "")
+                     + ('<span class="tag accent">Tomorrow</span>' if i == 0 else ""))
+            rows += row(label, clock(p["asleep_by"]), value_cls="accent" if i == 0 else "", tip=tip)
+        html('<div class="inset">' + card_head("Your week", f"bed by · {dur(plan[0]['need'])} sleep")
+             + f'<div class="rows tight">{rows}</div></div>')
         end = schedule.term_end(classes)
-        with st.expander("Update class schedule" if classes else "Add your class schedule", expanded=not classes):
+        with st.expander("Class schedule", expanded=not classes):
+            if classes:
+                st.number_input("Wake up before first class (min)", min_value=10, max_value=180,
+                                value=buffer, step=5, key="buffer", on_change=save_buffer)
             st.text_area("Paste your schedule", key="sched_text", height=140,
                          placeholder="In your student portal, open your class schedule (List View), select everything, copy, and paste it here.")
             c1, c2 = st.columns(2)
@@ -520,21 +531,23 @@ def bedtime_card():
         return
     need = round(I.need_hours(sleep.iloc[-1]))
     pick = max((r["hours"] for r in g["rows"] if r["hours"] <= need), default=None)
+    usual = round(g["usual_hours"])
     rows = ""
     for r in g["rows"]:
         best = r["hours"] == pick
-        label = f'Asleep by {clock(r["asleep_by"])}' + ('<span class="tag accent">Best</span>' if best else "")
-        sleep_words = f'{r["hours"]}h{"+" if r["hours"] == 9 else ""} of sleep'
+        hours = f'{r["hours"]}h{"+" if r["hours"] == 9 else ""}'
+        label = (f'{clock(r["asleep_by"])}<small>{hours}</small>' + ('<span class="tag accent">Best</span>' if best else "")
+                 + ('<span class="tag">Usual</span>' if r["hours"] == usual else ""))
         score = f'{ui.score_bar(r["score"])}{r["score"]:.0f}' if r["score"] is not None else "–"
-        rows += row(label, score, sub=f'{sleep_words} · {r["nights"]} nights like this',
-                    value_cls="accent" if best else "")
-    html(card(card_head("Best bedtime for you", f"Class days · up {clock(g['wake'])}" if g["from_classes"]
-                        else f"Weeknights · up {clock(g['wake'])}")
-              + '<div class="r-sub" style="margin-top:6px">With a fixed wake-up, bedtime decides how long you sleep. '
-                'Each bedtime, and your average sleep score with that much sleep.</div>'
-              + f'<div class="rows">{rows}</div>'
-              + f'<div class="card-foot">On weeknights you usually fall asleep around {clock(g["usual_bed"])} '
-                f'and get about {dur(g["usual_hours"])}.</div>'))
+        rows += row(label, score, value_cls="accent" if best else "",
+                    tip=f'Asleep by {clock(r["asleep_by"])}: {hours} of sleep, average score '
+                        + (f'{r["score"]:.0f}' if r["score"] is not None else "–") + f' over {r["nights"]} nights like this')
+    days = "class days" if g["from_classes"] else "weeknights"
+    html(card(card_head("Best bedtime", f'<span{ui.tip_attr(f"Your wake-up on {days}")}>up {clock(g["wake"])}</span>')
+              + f'<div class="rows tight barlist">{rows}</div>'
+              + ui.more("With a fixed wake-up, bedtime decides how long you sleep. Each bar is your average sleep "
+                        f"score with that much sleep, on {days} when you're up at {clock(g['wake'])}. On weeknights you "
+                        f"usually fall asleep around {clock(g['usual_bed'])} and get about {dur(g['usual_hours'])}.")))
 
 
 def drivers_card(cur, label):
@@ -546,15 +559,14 @@ def drivers_card(cur, label):
     slept, later = dr["per_hour_slept"], dr["per_hour_later"]
     later_words = ("barely changes it" if abs(later) < 2 else "changes it a little" if abs(later) < 4
                    else "changes it a lot")
+    faded = " Faded bars rest on fewer than 5 nights." if (dr["by_length"]["nights"].between(1, 4)).any() else ""
     with st.container(key="card_drivers"):
-        html('<div class="inset">' + card_head("What drives your score")
-             + f'<div class="body" style="margin-top:8px">Each extra hour of sleep adds about <b>{slept:+.0f} points</b>. '
-             + f'Falling asleep an hour later with the same amount of sleep {later_words} '
-             + f'(<b>{later:+.0f}</b>). <b>How long</b> you sleep matters, not when.</div></div>')
+        html('<div class="inset">' + card_head("Score by hours asleep", f'{dr["nights"]} nights') + '</div>')
         chart("bylength", charts.score_by_length(dr["by_length"]), width="stretch")
-        faded = " Faded bars rest on fewer than 5 nights." if (dr["by_length"]["nights"].between(1, 4)).any() else ""
-        html(f'<div class="inset card-foot" style="margin-top:2px">Average score by hours asleep, from {scope} '
-             f'({dr["nights"]} nights).{faded}</div>')
+        html('<div class="inset">' + ui.more(
+            f"Each extra hour of sleep adds about <b>{slept:+.0f} points</b>. Falling asleep an hour later with the "
+            f"same amount of sleep {later_words} (<b>{later:+.0f}</b>). <b>How long</b> you sleep matters, not when. "
+            f"From {scope}.{faded}") + '</div>')
 
 
 # ================= TRAINING =================
@@ -567,19 +579,23 @@ def training_tab():
 
     # Past 7 days: what you did and how it compares
     by_sport = week.groupby("sport")["duration_min"].sum()
-    sports = "".join(f'<span class="chip neutral" style="margin:12px 4px 0">{icon(ui.SPORT_ICON[s])}'
-                     f'{ui.SPORT_NAME[s]} {dur_min(m)}</span>' for s, m in by_sport.items())
+    # One chip per sport, only when there's more than one (otherwise it repeats the total)
+    sports = ("".join(ui.pill(ui.SPORT_ICON[s], f"{ui.SPORT_NAME[s]} {dur_min(m)}") for s, m in by_sport.items())
+              if len(by_sport) > 1 else "")
     load_rows = ""
     if lc:
         advice = {"good": "A steady build. Keep it up.",
                   "ok": "Big jumps make injury more likely. Build up gradually.",
                   "neutral": "An easier week. Fine if planned, or a chance to build."}[lc["status"]]
-        load_rows = ui.bullet_row("Training load", num(lc["week"]), "", lc["week"], lc["band"], lc["domain"],
-                                  lc["status"], f"{lc['text']} {num(lc['usual'])} a week. {advice}")
+        arrow = "trending_down" if lc["ratio"] < 0.8 else "trending_up" if lc["ratio"] > 1.3 else "trending_flat"
+        load_rows = ui.bullet_row("Training load", icon(arrow, lc["status"]) + num(lc["week"]), "", lc["week"],
+                                  lc["band"], lc["domain"], lc["status"],
+                                  tip=f"{lc['text']} {num(lc['usual'])} a week. {advice}")
     html(card(f'<div class="hero"><h2 class="h3">Past 7 days</h2>'
               f'<div class="figure">{dur_min(week["duration_min"].sum()) if len(week) else "0 min"}<small>training</small></div>'
               f'<div class="hero-meta">{len(week)} workout{"s" if len(week) != 1 else ""}</div>'
-              f'<div>{sports}</div></div><div class="rows" style="margin-top:14px">{load_rows}</div>'))
+              + (f'<div class="chips">{sports}</div>' if sports else "")
+              + f'</div><div class="rows" style="margin-top:14px">{load_rows}</div>'))
 
     latest_workout_card(acts.iloc[-1])
 
@@ -592,15 +608,14 @@ def training_tab():
         weekly = I.weekly_training(cur, END - pd.Timedelta(days=days - 1), END)
         avg_h = weekly.loc[weekly["week"] != I.week_start(END), "hours"].mean()
         with st.container(key="card_weekly"):
-            html('<div class="inset">' + card_head("Weekly training", f"avg {dur(avg_h)} a week", level=3)
-                 + '<div class="r-sub">Hours per week. This week is faded until it\'s done.</div></div>')
+            html('<div class="inset">' + card_head("Weekly training", f"avg {dur(avg_h)}", level=3) + '</div>')
             chart("weekly", charts.weekly_hours(weekly, I.week_start(END)), width="stretch")
         movement_card(days)
-        fitness_card(days)
-    with right:
+    with right:  # split chosen so both columns end at about the same height
         sport_card(cur, prev, label)
         intensity_card(cur, label)
-        workouts_card(cur, label)
+        fitness_card(days)
+        workouts_card(cur)
 
 
 EFFECT_MEANING = {
@@ -623,22 +638,20 @@ def latest_workout_card(a):
     speed = totals[0]["speed"] if totals else None
     if sport in ("run", "swim", "bike") and speed:
         stats.append((ui.speed_text(speed, sport), "Pace" if sport != "bike" else "Speed"))
-    stats.append((f'{num(a["avg_hr"])}<small>bpm</small>' if not pd.isna(a["avg_hr"]) else "–", "Avg heart rate"))
+    stats.append((f'{num(a["avg_hr"])}<small>bpm</small>' if not pd.isna(a["avg_hr"]) else "–", "Avg HR"))
     cells = "".join(f'<div><div class="strip-v">{v}</div><div class="strip-k">{k}</div></div>' for v, k in stats)
     effect = a.get("effect_label")
-    effect_html = ""
-    if effect in ui.EFFECT_NAME:
-        effect_html = (f'<div class="r" style="margin-top:14px; border-top:1px solid var(--line)">'
-                       f'{icon("bolt", "r-ic accent")}<div class="r-main"><div class="r-label">'
-                       f'{ui.EFFECT_NAME[effect]} workout</div><div class="r-sub">{EFFECT_MEANING.get(effect, "")}'
-                       f' · training load {num(a["training_load"])}</div></div></div>')
+    tag = (f'<span class="tag"{ui.tip_attr(EFFECT_MEANING.get(effect, "") + f" · training load {num(a["training_load"])}")}>'
+           f'{ui.EFFECT_NAME[effect]}</span>' if effect in ui.EFFECT_NAME else "")
     url = f"https://connect.garmin.com/modern/activity/{int(a['id'])}"
     html(card(card_head("Latest workout", f'<a class="accent" href="{url}" target="_blank" rel="noopener" '
-                                          f'style="text-decoration:none">Open in Garmin Connect</a>')
-              + f'<div class="r" style="padding-bottom:0"><div class="tile">{icon(ui.activity_icon(a["type"], sport))}</div>'
+                                          f'title="Open in Garmin Connect" style="text-decoration:none">'
+                                          f'Garmin{icon("open_in_new")}</a>')
+              + f'<div class="r" style="padding-bottom:0"{ui.tip_attr(f"{ui.SPORT_NAME[sport]} at {hhmm(a["start_time"])}")}>'
+              + f'<div class="tile">{icon(ui.activity_icon(a["type"], sport))}</div>'
               + f'<div class="r-main"><div class="act-name">{ui.escape(str(a["name"]))}</div>'
-              + f'<div class="r-sub">{ui.SPORT_NAME[sport]} · {day(a["date"], True)} · {hhmm(a["start_time"])}</div></div></div>'
-              + f'<div class="stats4">{cells}</div>{effect_html}'))
+              + f'<div class="r-sub">{day(a["date"], True)}{tag}</div></div></div>'
+              + f'<div class="stats4">{cells}</div>'))
 
 
 def sport_card(cur, prev, label):
@@ -656,18 +669,17 @@ def sport_card(cur, prev, label):
             diff = r["speed"] - b["speed"]
             if sport == "bike":
                 if abs(diff) >= 0.3:
-                    change = f", {abs(diff):.1f} km/h {'faster' if diff > 0 else 'slower'} than the previous {label}"
-            elif abs(diff) >= 3:
-                change = f", {abs(diff):.0f} s {'slower' if diff > 0 else 'faster'} than the previous {label}"
+                    change = ui.delta(diff, f"{abs(diff):.1f} km/h",
+                                      tip=f"{'Faster' if diff > 0 else 'Slower'} than the previous {label}")
+            elif abs(diff) >= 3:  # pace: fewer seconds is faster
+                change = ui.delta(diff, f"{abs(diff):.0f} s", good_when_up=False,
+                                  tip=f"{abs(diff):.0f} s {'slower' if diff > 0 else 'faster'} than the previous {label}")
         what = "pace" if sport in ("run", "swim") else "speed"
-        sub = f'{r["sessions"]} session{"s" if r["sessions"] != 1 else ""}'
-        if r["km"]:
-            sub += f" · {ui.distance_text(r['km'], sport)}"
-        if speed:
-            sub += f" · avg {what} {speed}{change}"
+        sub = " · ".join(x for x in (ui.distance_text(r["km"], sport), speed) if x) + (f" {change}" if change else "")
         rows += row(ui.SPORT_NAME[sport], dur_min(r["minutes"]), sub=sub,
-                    lead=f'<div class="tile">{icon(ui.SPORT_ICON[sport])}</div>')
-    html(card(card_head("By sport", f"last {label}", level=3) + f'<div class="rows">{rows}</div>'))
+                    lead=f'<div class="tile">{icon(ui.SPORT_ICON[sport])}</div>',
+                    tip=f'{r["sessions"]} session{"s" if r["sessions"] != 1 else ""}' + (f", average {what}" if speed else ""))
+    html(card(card_head("By sport", level=3) + f'<div class="rows">{rows}</div>'))
 
 
 def intensity_card(cur, label):
@@ -682,20 +694,25 @@ def intensity_card(cur, label):
         blocks += (f'<div style="flex:{m["share"]}; background:{ui.INTENSITY[name]}; color:{ui.INTENSITY_INK[name]}" '
                    f'title="{name}: {m["share"]:.0%}, {dur_min(m["minutes"])}">{text}</div>')
     zones = {"Easy": "zones 1–2", "Moderate": "zone 3", "Hard": "zones 4–5"}
-    legend = "".join(f'<span><i class="key" style="background:{ui.INTENSITY[n]}"></i><b>{n}</b> {zones[n]} · '
-                     f'{dur_min(m["minutes"])}</span>' for n, m in mix.items())
+    legend = "".join(f'<span title="{n}: {zones[n]} · {dur_min(m["minutes"])}"><i class="key" '
+                     f'style="background:{ui.INTENSITY[n]}"></i><b>{n}</b></span>' for n, m in mix.items())
+    legend += ('<span title="Endurance coaches aim for about 80% of training time at an easy effort">'
+               '<i class="key mark"></i>Goal: 80% easy</span>')
     easy, hard = mix["Easy"]["share"], mix["Hard"]["share"]
     if easy >= 0.7:
-        take = "Mostly easy: a strong base. Add a few hard sessions to get faster."
+        status, word, take = "good", "Mostly easy", "Mostly easy: a strong base. Add a few hard sessions to get faster."
     elif hard >= 0.5:
+        status, word = "ok", "Mostly hard"
         take = ("<b>Most of your training time is hard.</b> Endurance coaches often aim for about 80% easy. "
                 "Slowing some sessions down helps you recover and build endurance.")
     else:
-        take = "A mix of easy and hard. Endurance coaches often aim for about 80% easy."
-    html(card(card_head("Easy vs hard", f"last {label}", level=3)
-              + f'<div class="seg" role="img" aria-label="Easy {easy:.0%}, hard {hard:.0%}">{blocks}</div>'
-              + f'<div class="legend">{legend}</div><div class="body small" style="margin-top:14px">{take}</div>'
-              + '<div class="card-foot">Time in each heart-rate zone during workouts.</div>'))
+        status, word, take = "neutral", "Mixed", "A mix of easy and hard. Endurance coaches often aim for about 80% easy."
+    minutes = "; ".join(f"{n} ({zones[n]}) {dur_min(m['minutes'])}" for n, m in mix.items())
+    html(card(card_head("Easy vs hard", f'<span class="{status}">{word}</span>', level=3)
+              + f'<div class="seg" role="img" aria-label="Easy {easy:.0%}, hard {hard:.0%}, goal 80% easy">'
+                f'{blocks}<i class="target" style="left:80%"></i></div>'
+              + f'<div class="legend">{legend}</div>'
+              + ui.more(f"<p>{take}</p><p>Time in each heart-rate zone during workouts, last {label}: {minutes}.</p>")))
 
 
 def fitness_card(days):
@@ -705,14 +722,14 @@ def fitness_card(days):
     span = max(days, 120)
     recent = I.in_window(vo2, END, span)
     change = latest["vo2max"] - recent.iloc[0]["vo2max"] if len(recent) >= 2 else 0
-    trend = ("Holding steady" if abs(change) < 0.3 else
-             f"Up {change:.1f} since {day(recent.iloc[0]['date'])}" if change > 0 else
-             f"Down {abs(change):.1f} since {day(recent.iloc[0]['date'])}")
+    since = f"since {day(recent.iloc[0]['date'])}"
+    trend = ui.delta(round(change, 1), f"{abs(change):.1f}", small=0.29,
+                     tip=f"Holding steady {since}" if abs(change) < 0.3 else f"{change:+.1f} {since}")
     with st.container(key="card_fitness"):
-        html('<div class="inset">' + card_head("Fitness", f"VO₂ max · {day(latest['date'])}", level=3)
-             + f'<div class="plan" style="margin-top:8px">{latest["vo2max"]:.1f}</div>'
-             + f'<div class="r-sub">{trend}. VO₂ max estimates your aerobic fitness; '
-             + 'Garmin updates it after outdoor runs.</div></div>')
+        html('<div class="inset">' + card_head("Fitness", f'<span{ui.tip_attr(f"Updated {day(latest["date"])}")}>'
+                                                           'VO₂ max</span>', level=3)
+             + '<div class="plan" style="margin-top:8px" title="VO₂ max estimates your aerobic fitness; '
+               f'Garmin updates it after outdoor runs.">{latest["vo2max"]:.1f}{trend}</div></div>')
         if len(recent) >= 3:
             chart("vo2", charts.vo2_trend(recent), width="stretch")
 
@@ -725,31 +742,31 @@ def movement_card(days):
     hit = (cur["steps"] >= cur["step_goal"]).mean()
     goal = cur["step_goal"].dropna().iloc[-1] if cur["step_goal"].notna().any() else None
     with st.container(key="card_movement"):
-        html('<div class="inset">' + card_head("Daily movement", "average per day", level=3)
-             + strip([(num(cur["steps"].mean()), f"Steps<br>(goal hit {hit:.0%} of days)"),
-                      (f'{num(cur["cal_active"].mean())}<small>cal</small>', "Active<br>calories"),
-                      (f'{num(cur["cal_total"].mean())}<small>cal</small>', "Total<br>burned")]) + '</div>')
+        html('<div class="inset">' + card_head("Daily movement", "avg", level=3)
+             + strip([(num(cur["steps"].mean()), "Steps", f"Goal hit on {hit:.0%} of days"),
+                      (f'{num(cur["cal_active"].mean())}<small>cal</small>', "Active", "Active calories"),
+                      (f'{num(cur["cal_total"].mean())}<small>cal</small>', "Burned", "Total calories burned")])
+             + '</div>')
         weekly = days > 90  # a year of daily bars is too thin to read, so show weekly averages
         chart("steps", charts.daily_steps(cur, goal, END - pd.Timedelta(days=days), END - pd.Timedelta(days=1),
                                            weekly), width="stretch")
-        per = "Average steps a day, week by week" if weekly else "Steps each day"
-        legend = ("" if weekly else
-                  f'<span><i class="key" style="background:{ui.ACCENT}"></i>Goal hit</span>'
-                  f'<span><i class="key" style="background:{charts.REST_GREY}"></i>Under goal</span>')
-        if goal:
-            legend += f'<span><i class="key dash"></i>Goal <b>{num(goal)}</b></span>'
-        html(f'<div class="inset legend">{legend}</div>'
-             f'<div class="inset card-foot" style="margin-top:6px">{per}. Hover a bar for details.</div>')
+        if goal:  # bars that reach the dashed line hit the goal (they're orange too)
+            html(f'<div class="inset legend"><span><i class="key dash"></i>Goal <b>{num(goal)}</b></span></div>')
 
 
-def workouts_card(cur, label):
+def workouts_card(cur):
     items = cur.iloc[::-1]
+    if items.empty:
+        html(card(card_head("Workouts", "none", level=3)))
+        return
     shown = items.head(12)
     links = "".join(ui.activity_link(a, a["sport"]) for _, a in shown.iterrows())
-    more = (f'<div class="card-foot">{len(items) - len(shown)} more in this period. See them all in Garmin Connect.</div>'
+    more = (f'<div class="card-foot">{len(items) - len(shown)} more in Garmin Connect</div>'
             if len(items) > len(shown) else "")
-    body = links or '<div class="r-sub" style="margin-top:8px">No workouts in this period.</div>'
-    html(card(card_head("Workouts", f"{len(items)} in the last {label}", level=3) + f'<div class="rows">{body}</div>{more}'))
+    # The list opens on click: the latest workout is already shown in full above
+    html(card(f'<details class="list"><summary class="card-head"><h3 class="h3">Workouts</h3>'
+              f'<span class="card-aside">{len(items)}{icon("expand_more")}</span></summary>'
+              f'<div class="rows">{links}</div>{more}</details>'))
 
 
 # ================= WEIGHT =================
@@ -764,13 +781,15 @@ def weight_unit():
 def weight_tab():
     w = I.weight_series(weights) if not weights.empty else weights
     unit = weight_unit()
+    c = I.calorie_needs(daily, acts, today)
     left, right = st.columns(2)  # fixed columns: cards never jump between them while loading
     with left:
         weight_card(w, unit)
         weight_trend_card(w, unit)
     with right:
-        calories_card(unit)
-        burn_card()
+        burn_card(c)
+        if c:
+            eat_card(c, unit)
 
 
 def save_weight_entry():
@@ -800,20 +819,23 @@ def weight_card(w, unit):
         else:
             latest = w.iloc[-1]
             rate = I.weight_rate(w, END)
-            trend = ""
+            trend = ""  # weight going up or down is neither good nor bad by itself, so the arrow stays grey
             if rate is not None:
-                trend = (ui.trend_chip(0, "Steady") if abs(rate) < 0.1 else
-                         ui.trend_chip(rate, f"{'Losing' if rate < 0 else 'Gaining'} about {abs(rate) * f:.1f} {unit} a week"))
+                steady = abs(rate) < 0.1
+                trend = ui.delta(0 if steady else rate, f"{abs(rate) * f:.1f} {unit}/wk", None,
+                                 tip="Steady over the last 4 weeks" if steady else
+                                 f"{'Losing' if rate < 0 else 'Gaining'} about {abs(rate) * f:.1f} {unit} a week")
             elif len(w) >= 2:
                 diff, before = (latest["kg"] - w.iloc[-2]["kg"]) * f, day(w.iloc[-2]["date"])
-                trend = (ui.trend_chip(0, f"Same as {before}") if abs(diff) < 0.05
-                         else ui.trend_chip(diff, f"{diff:+.1f} {unit} since {before}"))
+                trend = ui.delta(0 if abs(diff) < 0.05 else diff, f"{abs(diff):.1f} {unit}", None,
+                                 tip=f"Same as {before}" if abs(diff) < 0.05 else f"{diff:+.1f} {unit} since {before}")
             days_ago = (END - latest["date"]).days
-            logged = ("Logged today" if days_ago == 0 else "Logged yesterday" if days_ago == 1
-                      else f"Logged {day(latest['date'])}" + (f", {days_ago} days ago" if days_ago > 7 else ""))
+            logged = ("Today" if days_ago == 0 else "Yesterday" if days_ago == 1
+                      else day(latest["date"]) + (f" · {days_ago} days ago" if days_ago > 7 else ""))
             html(f'<div class="hero"><h2 class="h3">Weight</h2>'
                  f'<div class="figure">{latest["kg"] * f:.1f}<small>{unit}</small></div>'
-                 f'{trend}<div class="hero-meta">{logged}</div></div>')
+                 + (f'<div class="chips">{trend}</div>' if trend else "")
+                 + f'<div class="hero-note{" ok" if days_ago > 7 else ""}">{logged}</div></div>')
         st.segmented_control("Units", list(UNITS), default=unit, key="wunit", label_visibility="collapsed",
                              on_change=set_unit)
         default = round(float(w.iloc[-1]["kg"]) * f, 1) if not w.empty else round(70.0 * f, 1)
@@ -824,9 +846,9 @@ def weight_card(w, unit):
                 c1.number_input(f"Weight ({unit})", min_value=float(round(25 * f)), max_value=float(round(300 * f)),
                                 value=default, step=0.1, format="%.1f", key=f"w_val_{unit}")
                 c2.date_input("Day", value=today, max_value=today, format="YYYY-MM-DD", key="w_date")
-                c3.form_submit_button("Save", type="primary", width="stretch", on_click=save_weight_entry)
-        html('<div class="inset card-foot" style="margin-top:4px">Weigh in first thing in the morning for the '
-             'steadiest numbers. Saving a day again replaces it.</div>')
+                c3.form_submit_button("Save", type="primary", width="stretch", on_click=save_weight_entry,
+                                      help="Saving a day again replaces it. Weigh in first thing in the morning "
+                                           "for the steadiest numbers.")
 
 
 def weight_trend_card(w, unit):
@@ -847,19 +869,13 @@ def weight_trend_card(w, unit):
             start = END - pd.Timedelta(days=PERIODS[choice] - 1)
             cur = w[w["date"] >= start]
         if cur.empty:
-            last = w.iloc[-1]
-            html(f'<div class="inset"><div class="empty">No weigh-ins in the last {choice}. Your last one was '
-                 f'{last["kg"] * f:.1f} {unit} on {day(last["date"])}. Log today\'s above, or pick a longer range.</div></div>')
+            html(f'<div class="inset"><div class="empty">No weigh-ins in the last {choice}</div></div>')
         else:
-            # A 7-day average only makes sense with regular weigh-ins
+            # A 7-day average only makes sense with regular weigh-ins (the chart's hover says which line is which)
             smooth = len(cur) >= 7 and cur["date"].diff().dt.days.median() <= 3
             chart("weight", charts.weight_trend(cur, start, END, unit, f, smooth), width="stretch")
-            explain = ("Dots are weigh-ins. The line is your 7-day average, which evens out day-to-day water changes."
-                       if smooth else "Your weigh-ins. Log a few times a week and a smoothed 7-day average appears.")
-            html(f'<div class="inset card-foot" style="margin-top:0">{explain}</div>')
 
-        with st.container(key="wrecent"):
-            html('<div class="inset" style="margin-top:10px"><h3 class="h3">Recent weigh-ins</h3></div>')
+        with st.expander("Recent weigh-ins"), st.container(key="wrecent"):
             for _, e in w.iloc[::-1].head(5).iterrows():
                 older = w[w["date"] < e["date"]]
                 diff = (e["kg"] - older.iloc[-1]["kg"]) * f if not older.empty else None
@@ -876,26 +892,31 @@ def weight_trend_card(w, unit):
                               args=(e["date"].strftime("%Y-%m-%d"), label))
 
 
-def calories_card(unit):
-    c = I.calorie_needs(daily, acts, today)
+def burn_card(c):
+    """What you burn: the daily average, and each of the last 30 days (workout days in orange)."""
     if not c:
-        html(card(card_head("Calories") + '<div class="r-sub" style="margin-top:8px">'
-                  'Not enough days from your watch yet. Check back after a week of wearing it.</div>'))
+        html(card(card_head("Calories you burn") + '<div class="empty">Needs a week of watch data</div>'))
         return
-    saved = get_meta("weight_goal", "Maintain")
-    saved = saved if saved in I.GOALS else "Maintain"
-    bars = [(label, c["resting"], total) for label, total in (("Workout days", c["train"]), ("Rest days", c["rest"]))
-            if total is not None]
-
+    d = I.burn_by_day(daily, acts, today, 30)
     with st.container(key="card_cal"):
         html('<div class="inset"><div class="hero"><h2 class="h3">Calories you burn</h2>'
-             f'<div class="figure">{num(c["avg"])}<small>a day</small></div>'
-             f'<div class="hero-meta">Average of your last {c["days"]} full days, from your watch</div></div>'
-             + (ui.burn_bars(bars) if bars else "")
-             + '<div class="legend" style="margin-top:10px"><span><i class="key" style="background:#4a525e"></i>'
-               f'At rest <b>{num(c["resting"])}</b></span><span><i class="key" style="background:{ui.ACCENT}"></i>'
-               'From moving and workouts</span></div>'
-             + '<h3 class="h3" style="margin-top:24px">How much to eat</h3></div>')
+             f'<div class="figure"{ui.tip_attr(f"Average of your last {c["days"]} full days, from your watch: about {num(c["resting"])} at rest, the rest from moving and workouts")}>'
+             f'{num(c["avg"])}<small>a day</small></div></div></div>')
+        if len(d) >= 3:
+            chart("burn", charts.daily_burn(d, d["cal_total"].mean(), END - pd.Timedelta(days=30),
+                                            END - pd.Timedelta(days=1)), width="stretch")
+            kinds = [(ui.ACCENT, "Workout days", c["train"]), (charts.REST_GREY, "Rest days", c["rest"])]
+            html('<div class="inset legend">'
+                 + "".join(f'<span><i class="key" style="background:{color}"></i>{name}'
+                           + (f' <b>{num(v)}</b>' if v else "") + '</span>' for color, name, v in kinds)
+                 + '<span><i class="key dash"></i>Average</span></div>')
+
+
+def eat_card(c, unit):
+    saved = get_meta("weight_goal", "Maintain")
+    saved = saved if saved in I.GOALS else "Maintain"
+    with st.container(key="card_eat"):
+        html('<div class="inset">' + card_head("How much to eat") + '</div>')
         goal = st.segmented_control("Goal", list(I.GOALS), default=saved, label_visibility="collapsed",
                                     key="goal") or saved
         if goal != saved:
@@ -908,32 +929,16 @@ def calories_card(unit):
         pace = "half a pound" if unit == "lb" else "0.25 kg"
         aim = {"Lose": f"To lose about {pace} a week", "Maintain": "To keep your weight steady",
                "Gain": f"To gain about {pace} a week"}[goal]
-        cells = ([(f'{target(c["train"])}<small>cal</small>', "on workout days"),
-                  (f'{target(c["rest"])}<small>cal</small>', "on rest days")] if c["train"] and c["rest"]
-                 else [(f'{target(c["avg"])}<small>cal</small>', "a day")])
+        cells = ([(f'{target(c["train"])}<small>cal</small>', "Workout days"),
+                  (f'{target(c["rest"])}<small>cal</small>', "Rest days")] if c["train"] and c["rest"]
+                 else [(f'{target(c["avg"])}<small>cal</small>', "A day")])
         text = f"{aim}: about {target(c['avg'])} a day on average."
         if goal == "Lose":
             text += " Keep the cut this small so training and recovery don't suffer."
         html('<div class="inset">' + strip(cells)
-             + f'<div class="body" style="margin-top:14px">{text}</div>'
-             '<div class="card-foot">Your watch estimates calories from heart rate and movement, so treat these as a '
-             "starting point. If your weight trend doesn't match your goal after 2–3 weeks, adjust by 100–200 cal "
-             'a day.</div></div>')
-
-
-def burn_card():
-    d = I.burn_by_day(daily, acts, today, 30)
-    if len(d) < 3:
-        return
-    avg = d["cal_total"].mean()
-    with st.container(key="card_burn"):
-        html('<div class="inset">' + card_head("Calories burned", "past 30 days")
-             + '<div class="r-sub">Workout days burn more, so they need more food. Hover a day for details.</div></div>')
-        chart("burn", charts.daily_burn(d, avg, END - pd.Timedelta(days=30), END - pd.Timedelta(days=1)),
-                        width="stretch")
-        html(f'<div class="inset legend"><span><i class="key" style="background:{ui.ACCENT}"></i>Workout day</span>'
-             f'<span><i class="key" style="background:{charts.REST_GREY}"></i>Rest day</span>'
-             f'<span><i class="key dash"></i>Average <b>{num(avg)}</b> a day</span></div>')
+             + ui.more(f"<p>{text}</p><p>Your watch estimates calories from heart rate and movement, so treat these "
+                       "as a starting point. If your weight trend doesn't match your goal after 2–3 weeks, adjust by "
+                       "100–200 cal a day.</p>") + '</div>')
 
 
 # ================= FOOD =================
@@ -957,8 +962,7 @@ def food_tab():
 
 def food_today_card(targets, eaten, goal):
     if not targets:
-        html(card(card_head("Today") + '<div class="r-sub" style="margin-top:8px">Your targets appear after a week '
-                  'of wearing your watch.</div>'))
+        html(card(card_head("Today") + '<div class="empty">Targets need a week of watch data</div>'))
         return
     left_cal = targets["calories"] - eaten["calories"]
     big = (f'{num(left_cal)}<small>cal left</small>' if left_cal >= 0 else f'{num(-left_cal)}<small>cal over</small>')
@@ -970,22 +974,23 @@ def food_today_card(targets, eaten, goal):
                           status="good" if eaten[key] >= targets[key] * 0.9 else "")
     extra = (f'Fibre <b>{num(eaten["fibre"])}</b> / {targets["fibre"]} g · Sugar <b>{num(eaten["sugar"])}</b> g'
              if eaten["calories"] else "")
-    html(card(f'<div class="hero"><h2 class="h3">Today</h2><div class="figure">{big}</div>'
-              f'<div class="hero-meta">{kind} target {num(targets["calories"])} cal · goal: {goal.lower()}</div></div>'
-              f'<div class="rows" style="margin-top:14px">{rows}</div>'
+    html(card(f'<div class="hero"><h2 class="h3">Today</h2><div class="figure">{big}</div><div class="chips">'
+              + ui.pill("fitness_center" if targets["trained"] else "self_improvement", kind,
+                        tip=f"{kind} target for your goal ({goal.lower()})")
+              + f'</div></div><div class="rows" style="margin-top:14px">{rows}</div>'
               + (f'<div class="r-sub" style="margin-top:2px">{extra}</div>' if extra else "")
-              + '<div class="card-foot">Targets come from what your watch says you burn (change the goal on the '
-                'Weight tab). Workout days switch on once your workout syncs. Protein 1.6 g and carbs 5–6 g per kg '
-                'of body weight suit endurance training.</div>'))
+              + ui.more(f"<p>Your {kind.lower()} target is {num(targets['calories'])} cal for your goal "
+                        f"({goal.lower()}). Targets come from what your watch says you burn (change the goal on the "
+                        "Weight tab). Workout days switch on once your workout syncs. Protein 1.6 g and carbs 5–6 g "
+                        "per kg of body weight suit endurance training.</p>", "How targets work")))
 
 
 def meals_card(eaten):
     m = eaten["meals"]
     with st.container(key="card_meals"):
-        html('<div class="inset">' + card_head("Meals today", f"{len(m)} logged" if len(m) else "") + '</div>')
+        html('<div class="inset">' + card_head("Meals today", str(len(m)) if len(m) else "") + '</div>')
         if m.empty:
-            html('<div class="inset"><div class="empty">Nothing logged yet today. Add a meal with a photo or a '
-                 'quick description.</div></div>')
+            html('<div class="inset"><div class="empty">No meals yet</div></div>')
             return
         with st.container(key="mealrows"):
             for _, r in m.sort_values("time").iterrows():
@@ -1029,19 +1034,19 @@ def add_meal_card():
         if pending:
             review_meal(pending)
             return
-        html('<div class="inset">' + card_head("Add a meal") + '<div class="r-sub" style="margin-top:6px">'
-             'Snap or upload photos, describe it, or both. You can check the numbers before saving.</div></div>')
+        html('<div class="inset">' + card_head("Add a meal") + '</div>')
         if not food.has_key():
             html('<div class="inset"><div class="notice" style="background:var(--card-2); margin-top:10px">'
-                 f'{icon("key")}<div><b>Add a Gemini key to estimate from photos.</b> Get a free key at '
-                 '<a class="accent" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">'
-                 'aistudio.google.com/apikey</a>, run <code>setx GEMINI_API_KEY "your-key"</code> in a terminal, '
-                 'then close and reopen the dashboard. Until then you can enter meals by hand.</div></div></div>')
+                 f'{icon("key")}<div><b>Photo estimates need a free Gemini key.</b></div></div>'
+                 + ui.more('Get a free key at <a class="accent" href="https://aistudio.google.com/apikey" '
+                           'target="_blank" rel="noopener">aistudio.google.com/apikey</a>, run '
+                           '<code>setx GEMINI_API_KEY "your-key"</code> in a terminal, then close and reopen the '
+                           'dashboard. Until then you can enter meals by hand.', "Set it up") + '</div>')
         with st.container(key="mealform"):
-            photos = st.file_uploader("Photos of your meal", type=["jpg", "jpeg", "png", "webp", "heic"],
-                                      accept_multiple_files=True, disabled=not food.has_key(),
-                                      help="Add as many as you like: each dish, or one plate from a few angles")
-            note = st.text_input("Describe it, or add a note", placeholder="e.g. chicken burrito, large, and a coke",
+            # Several photos are fine: each dish, or one plate from a few angles
+            photos = st.file_uploader("Photos", type=["jpg", "jpeg", "png", "webp", "heic"],
+                                      accept_multiple_files=True, disabled=not food.has_key())
+            note = st.text_input("Describe it", placeholder="e.g. chicken burrito, large, and a coke",
                                  disabled=not food.has_key())
             c1, c2 = st.columns(2)
             go = c1.button("Estimate", type="primary", icon=":material/auto_awesome:", width="stretch",
@@ -1064,9 +1069,10 @@ def add_meal_card():
                                            "carbs_g": meal.carbs_g, "fat_g": meal.fat_g, "fibre_g": meal.fibre_g,
                                            "sugar_g": meal.sugar_g}
             st.rerun()
-        html('<div class="inset card-foot">Photos go to Google\'s Gemini to be estimated and aren\'t saved here. '
-             'On the free tier, Google may use them to improve its products. Estimates can be off by 20% or more, '
-             'so fix anything that looks wrong.</div>')
+        html('<div class="inset">' + ui.more(
+            "Photos go to Google's Gemini to be estimated and aren't saved here. On the free tier, Google may use them "
+            "to improve its products. Estimates can be off by 20% or more, so fix anything that looks wrong. You can "
+            "add several photos: each dish, or one plate from a few angles.", "Privacy") + '</div>')
 
 
 def estimate_with_progress(slot, images, note):
@@ -1120,7 +1126,7 @@ def review_meal(p):
     n = p["n"]
     items = "".join(f"<li>{icon('restaurant')}<span>{ui.escape(name)} · {num(cal)} cal</span></li>"
                     for name, cal in p["items"])
-    html('<div class="inset">' + card_head("Check and save", "edit anything that's off")
+    html('<div class="inset">' + card_head("Check and save")
          + (f'<ul class="why">{items}</ul>' if items else "")
          + (f'<div class="r-sub" style="margin-top:6px">{ui.escape(p["notes"])}</div>' if p["notes"] else "")
          + '</div>')

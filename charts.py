@@ -38,18 +38,17 @@ def bar_size(n, width=340, most=14):
 
 
 def recent_scores(nights, usual, start, end):
-    """The last week of sleep scores: line, points with light centres, dashed 'usual' line."""
+    """A sparkline of the last week of sleep scores against a dashed 'usual' line (no axes:
+    hover a point for its night and score)."""
     d = nights.copy()
     d["slept"] = d["total_sleep_hours"].map(dur)
     xs = alt.Scale(domain=padded_domain(start, end))
-    x = alt.X("date:T", title=None, scale=xs,
-              axis=alt.Axis(format="%a", tickCount={"interval": "day", "step": 1}, labelAngle=0))
+    x = alt.X("date:T", title=None, scale=xs, axis=None)
     low = min(d["sleep_score"].min(), usual) - 8
     high = max(d["sleep_score"].max(), usual) + 6
     ys = alt.Scale(domain=[max(0, low), min(100, high)])
-    y_axis = alt.Axis(orient="right", tickCount=3, labelColor=MUTED)
-    y = alt.Y("sleep_score:Q", title=None, scale=ys, axis=y_axis)
-    y_usual = alt.Y("v:Q", title=None, scale=ys, axis=y_axis)
+    y = alt.Y("sleep_score:Q", title=None, scale=ys, axis=None)
+    y_usual = alt.Y("v:Q", title=None, scale=ys, axis=None)
     hover = alt.selection_point(fields=["date"], nearest=True, on="pointerover", clear="pointerout", empty=False)
     base = alt.Chart(with_segments(d, 1)).encode(x=x)
     usual_df = pd.DataFrame({"date": [pd.Timestamp(start)], "v": [usual], "t": [f"usual {usual:.0f}"]})
@@ -64,7 +63,7 @@ def recent_scores(nights, usual, start, end):
             y=y, tooltip=[HOVER_DATE, alt.Tooltip("sleep_score:Q", title="Score"),
                           alt.Tooltip("slept:N", title="Asleep")]).add_params(hover),
     ]
-    return style(alt.layer(*layers).properties(height=120))
+    return style(alt.layer(*layers).properties(height=84))
 
 
 Y_AXIS_WIDTH = 34  # same width on both nightly charts so their dates line up
@@ -78,7 +77,8 @@ def nightly_hours(nights, need_hours, start, end):
     top = max(10, float(d["total_sleep_hours"].max()) + 0.5)
     ys = alt.Scale(domain=[0, top])
     tip = [HOVER_DATE, alt.Tooltip("slept:N", title="Asleep"), alt.Tooltip("sleep_score:Q", title="Score")]
-    x = alt.X("date:T", title=None, scale=xs, axis=alt.Axis(format="%b %d", tickCount=5, labelAngle=0))
+    # No date labels: the score chart right below shares these dates and labels them
+    x = alt.X("date:T", title=None, scale=xs, axis=alt.Axis(format="%b %d", tickCount=5, labels=False, ticks=False))
     y_axis = alt.Axis(values=[0, 5, 10], labelExpr="datum.value + 'h'", minExtent=Y_AXIS_WIDTH, maxExtent=Y_AXIS_WIDTH)
     bars = alt.Chart(d).mark_bar(color=ACCENT, cornerRadiusEnd=3, size=bar_size(len(d))).encode(
         x=x, y=alt.Y("total_sleep_hours:Q", title=None, scale=ys, axis=y_axis), tooltip=tip)
@@ -246,11 +246,11 @@ def daily_steps(d, goal, start, end, weekly=False):
     d["steps_t"] = d["steps"].map(lambda v: f"{v:,.0f}")
     top = float(max(d["steps"].max(), goal or 0)) * 1.1
     ys = alt.Scale(domain=[0, top], nice=False)
-    step = 5000 if top > 12000 else 2500
+    step = 10000 if top > 18000 else 5000 if top > 9000 else 2500
     y_axis = alt.Axis(values=list(range(0, int(top) + 1, step)), minExtent=Y_AXIS_WIDTH, maxExtent=Y_AXIS_WIDTH,
                       labelExpr="datum.value === 0 ? '0' : datum.value / 1000 + 'k'")
     x = alt.X("date:T", title=None, scale=alt.Scale(domain=padded_domain(start, end, hours=96 if weekly else 14)),
-              axis=alt.Axis(format="%b %d", tickCount=5, labelAngle=0))
+              axis=alt.Axis(format="%b %d", tickCount=3, labelAngle=0))
     bars = alt.Chart(d).mark_bar(cornerRadiusEnd=3, size=bar_size(len(d), most=14)).encode(
         x=x, y=alt.Y("steps:Q", title=None, scale=ys, axis=y_axis), color=colors, tooltip=tip)
     layers = [bars]
