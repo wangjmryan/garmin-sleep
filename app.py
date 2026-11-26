@@ -538,8 +538,9 @@ def week_card_sleep():
             fc = p["first_class"]
             tip = ((f"{class_name(fc)} at {clock(fc['start'])} · up {clock(p['wake'])}" if fc
                     else f"No class · usually up {clock(p['wake'])}") + f" · asleep by this on {p['night']:%A} night")
-            label = (f"{p['morning']:%a}" + (f'{icon("school")}<small>{clock(fc["start"])}</small>' if fc else "")
-                     + ('<span class="tag accent">Tomorrow</span>' if i == 0 else ""))
+            # Named by the night you go to bed, with the next morning's first class after it
+            label = (("Tonight" if i == 0 else f"{p['night']:%a} night")
+                     + (f'<small>{icon("school")}{clock(fc["start"])}</small>' if fc else ""))
             rows += row(label, clock(p["asleep_by"]), value_cls="accent" if i == 0 else "", tip=tip)
         html('<div class="inset">' + card_head("Your week", f"bed by · {dur(plan[0]['need'])} sleep")
              + f'<div class="rows tight">{rows}</div></div>')
@@ -878,23 +879,26 @@ def weight_trend_card(w, unit):
     f = UNITS[unit]
     with st.container(key="card_wtrend"):
         html('<div class="inset">' + card_head("Trend") + '</div>')
-        ranges = [*PERIODS, "All"]
-        saved = st.session_state.get("wperiod_keep", "90 days")
-        choice = st.segmented_control("Range", ranges, default=saved if saved in ranges else "90 days",
-                                      label_visibility="collapsed", key="wperiod") or "90 days"
-        st.session_state["wperiod_keep"] = choice
-        # The chart always covers exactly the range you picked
-        if choice == "All":
-            start, cur = min(w["date"].min(), END - pd.Timedelta(days=29)), w
+        if (END - w["date"].max()).days > 30:  # a few old dots say nothing about where you are now
+            html('<div class="inset"><div class="empty">Weigh in a few times to see your trend</div></div>')
         else:
-            start = END - pd.Timedelta(days=PERIODS[choice] - 1)
-            cur = w[w["date"] >= start]
-        if cur.empty:
-            html(f'<div class="inset"><div class="empty">No weigh-ins in the last {choice}</div></div>')
-        else:
-            # A 7-day average only makes sense with regular weigh-ins (the chart's hover says which line is which)
-            smooth = len(cur) >= 7 and cur["date"].diff().dt.days.median() <= 3
-            chart("weight", charts.weight_trend(cur, start, END, unit, f, smooth), width="stretch")
+            ranges = [*PERIODS, "All"]
+            saved = st.session_state.get("wperiod_keep", "90 days")
+            choice = st.segmented_control("Range", ranges, default=saved if saved in ranges else "90 days",
+                                          label_visibility="collapsed", key="wperiod") or "90 days"
+            st.session_state["wperiod_keep"] = choice
+            # The chart always covers exactly the range you picked
+            if choice == "All":
+                start, cur = min(w["date"].min(), END - pd.Timedelta(days=29)), w
+            else:
+                start = END - pd.Timedelta(days=PERIODS[choice] - 1)
+                cur = w[w["date"] >= start]
+            if cur.empty:
+                html(f'<div class="inset"><div class="empty">No weigh-ins in the last {choice}</div></div>')
+            else:
+                # A 7-day average only makes sense with regular weigh-ins (the hover says which line is which)
+                smooth = len(cur) >= 7 and cur["date"].diff().dt.days.median() <= 3
+                chart("weight", charts.weight_trend(cur, start, END, unit, f, smooth), width="stretch")
 
         with st.expander("Recent weigh-ins"), st.container(key="wrecent"):
             for _, e in w.iloc[::-1].head(5).iterrows():
@@ -1025,11 +1029,17 @@ def food_today_card(targets, eaten, goal):
            else f'{num(eaten["calories"])}<small>cal eaten</small>')
     over = ui.pill("trending_up", f"{num(-left_cal)} over", "low") if left_cal < 0 else ""
     kind = "Workout day" if targets["trained"] else "Rest day"
+    def status(eaten_v, target, over_ok=False):
+        """Green near the target, yellow once clearly over (except protein, where extra is fine)."""
+        if eaten_v > target * 1.05 and not over_ok:
+            return "ok"
+        return "good" if eaten_v >= target * 0.9 else ""
+
     rows = meter_row("Eaten", num(eaten["calories"]), f"/ {num(targets['calories'])} cal",
-                     eaten["calories"] / targets["calories"], status="good" if 0 <= left_cal <= 150 else "")
+                     eaten["calories"] / targets["calories"], status=status(eaten["calories"], targets["calories"]))
     for key, name in (("protein", "Protein"), ("carbs", "Carbs"), ("fat", "Fat")):
         rows += meter_row(name, num(eaten[key]), f"/ {num(targets[key])} g", eaten[key] / targets[key],
-                          status="good" if eaten[key] >= targets[key] * 0.9 else "")
+                          status=status(eaten[key], targets[key], over_ok=key == "protein"))
     extra = (f'Fibre <b>{num(eaten["fibre"])}</b> / {targets["fibre"]} g · Sugar <b>{num(eaten["sugar"])}</b> g'
              if eaten["calories"] else "")
     html(card(f'<div class="hero"><h2 class="h3">Today</h2><div class="figure">{big}</div><div class="chips">'

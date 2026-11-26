@@ -161,6 +161,9 @@ html { scrollbar-color: #3a424d transparent; }
 .meter { height: 6px; border-radius: 99px; background: var(--card-2); overflow: hidden; margin-top: 10px; }
 .meter > i { display: block; height: 100%; border-radius: 99px; background: var(--accent); }
 .meter > i.good { background: var(--good); }
+.meter > i.ok { background: var(--warn); }
+.meter { position: relative; }
+.meter > b { position: absolute; top: 0; bottom: 0; width: 3px; margin-left: -1px; background: var(--card); }
 
 /* Recovery: a Rest-Easy-Normal-Hard scale, and one bar per signal */
 .levels { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3px; margin: 16px 0 6px; }
@@ -300,7 +303,7 @@ button[data-variant="segmented_control"]:hover { color: var(--text) !important; 
 
 /* Each chart's slot starts at the chart's final height (the `height` in charts.py), so cards
    don't grow and shove each other down as charts finish drawing */
-.st-key-chart_recent { min-height: 94px; }
+.st-key-chart_recent { min-height: 112px; }
 .st-key-chart_scores { min-height: 120px; }
 .st-key-chart_vo2 { min-height: 140px; }
 .st-key-chart_hours { min-height: 150px; }
@@ -609,7 +612,9 @@ def more(body, summary="How it works"):
 
 def meter(fraction, status=""):
     width = max(0.0, min(float(fraction), 1.0)) * 100
-    return f'<div class="meter" role="presentation"><i class="{status}" style="width:{width:.0f}%"></i></div>'
+    # Past the target: the bar fills and a notch marks where the target was, so you can see how far over
+    notch = f'<b style="left:{100 / fraction:.0f}%"></b>' if fraction > 1 else ""
+    return f'<div class="meter" role="presentation"><i class="{status}" style="width:{width:.0f}%"></i>{notch}</div>'
 
 
 def row(label, value, unit="", sub="", lead="", value_cls="", tip=""):

@@ -38,12 +38,14 @@ def bar_size(n, width=340, most=14):
 
 
 def recent_scores(nights, usual, start, end):
-    """A sparkline of the last week of sleep scores against a dashed 'usual' line (no axes:
-    hover a point for its night and score)."""
+    """A sparkline of the last week of sleep scores against a dashed 'usual' line. Each day is
+    labelled underneath, so a missing night shows as a gap above its day (hover a point for more)."""
     d = nights.copy()
     d["slept"] = d["total_sleep_hours"].map(dur)
     xs = alt.Scale(domain=padded_domain(start, end))
-    x = alt.X("date:T", title=None, scale=xs, axis=None)
+    days = alt.Axis(format="%a", tickCount={"interval": "day", "step": 1}, labelAngle=0, grid=False,
+                    labelPadding=4, labelFontSize=11)
+    x = alt.X("date:T", title=None, scale=xs, axis=days)
     low = min(d["sleep_score"].min(), usual) - 8
     high = max(d["sleep_score"].max(), usual) + 6
     ys = alt.Scale(domain=[max(0, low), min(100, high)])
